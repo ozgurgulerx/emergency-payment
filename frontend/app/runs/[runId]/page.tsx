@@ -921,13 +921,13 @@ export default function RunPage() {
                           <div key={i} className="p-3 rounded-lg bg-surface-1">
                             <div className="flex items-center justify-between mb-2">
                               <span className="text-xs font-medium text-teal-500">{citation.source}</span>
-                              {citation.reference && (
+                              {("reference" in citation ? citation.reference : (citation as { url?: string }).url) && (
                                 <a href="#" className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
                                   View <ExternalLink className="w-3 h-3" />
                                 </a>
                               )}
                             </div>
-                            <p className="text-sm text-muted-foreground italic">"{citation.snippet}"</p>
+                            <p className="text-sm text-muted-foreground italic">&quot;{citation.snippet}&quot;</p>
                           </div>
                         ))}
                       </div>
