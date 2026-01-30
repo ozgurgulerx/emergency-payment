@@ -252,6 +252,50 @@ class ArtifactStore:
         return bundle
 
 
+# In-memory fallback store for when blob storage is unavailable
+class InMemoryArtifactStore:
+    """Fallback artifact store that keeps artifacts in memory."""
+
+    def __init__(self):
+        self.artifacts = {}  # run_id -> artifact_type -> versions
+        logger.info("using_in_memory_artifact_store")
+
+    async def save(self, artifact: ArtifactBase) -> str:
+        """Save artifact to memory."""
+        key = (artifact.run_id, artifact.artifact_type)
+        if key not in self.artifacts:
+            self.artifacts[key] = {}
+        self.artifacts[key][artifact.version] = artifact
+        path = f"memory://{artifact.run_id}/{artifact.artifact_type}/{artifact.version}"
+        logger.info("artifact_saved_in_memory", path=path)
+        return path
+
+    async def load(self, run_id: str, artifact_type: str, version: int = None, model_class=None):
+        """Load artifact from memory."""
+        key = (run_id, artifact_type)
+        if key not in self.artifacts:
+            return None
+        versions = self.artifacts[key]
+        if version:
+            return versions.get(version)
+        # Return latest
+        if versions:
+            return versions[max(versions.keys())]
+        return None
+
+    async def list_artifacts(self, run_id: str) -> dict:
+        """List artifacts for a run."""
+        result = {}
+        for (rid, atype), versions in self.artifacts.items():
+            if rid == run_id and versions:
+                result[atype] = max(versions.keys())
+        return result
+
+    async def get_audit_bundle(self, run_id: str) -> dict:
+        """Get audit bundle."""
+        return {"run_id": run_id, "artifacts": await self.list_artifacts(run_id)}
+
+
 # Singleton instance
 _artifact_store: Optional[ArtifactStore] = None
 
@@ -260,5 +304,9 @@ async def get_artifact_store() -> ArtifactStore:
     """Get or create the singleton ArtifactStore instance."""
     global _artifact_store
     if _artifact_store is None:
-        _artifact_store = await ArtifactStore.create()
+        try:
+            _artifact_store = await ArtifactStore.create()
+        except Exception as e:
+            logger.warning("blob_storage_unavailable", error=str(e), fallback="in_memory")
+            _artifact_store = InMemoryArtifactStore()
     return _artifact_store

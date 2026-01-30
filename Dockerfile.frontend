@@ -1,6 +1,11 @@
 # Stage 1: Builder (install all deps including devDependencies for build)
 FROM node:20-alpine AS builder
 WORKDIR /app
+
+# Build arg for backend URL (evaluated at build time for Next.js rewrites)
+ARG BACKEND_URL=http://10.0.0.4
+ENV BACKEND_URL=${BACKEND_URL}
+
 COPY frontend/package*.json ./
 RUN npm ci
 COPY frontend/ .
