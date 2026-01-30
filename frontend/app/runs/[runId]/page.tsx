@@ -877,7 +877,7 @@ export default function RunPage() {
                           {decision.sod_constraints.map((constraint, i) => (
                             <li key={i} className="text-sm text-muted-foreground flex items-start gap-2">
                               <AlertTriangle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
-                              {constraint}
+                              {typeof constraint === "string" ? constraint : constraint.description}
                             </li>
                           ))}
                         </ul>
