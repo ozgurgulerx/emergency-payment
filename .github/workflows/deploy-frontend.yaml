@@ -2,31 +2,51 @@ name: Deploy Frontend to App Service
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
     paths:
       - 'frontend/**'
+      - '.github/workflows/deploy-frontend.yaml'
   workflow_dispatch:
+
+env:
+  AZURE_WEBAPP_NAME: emrgpay-frontend
+  AZURE_RG: rg-emrgpay
+  NODE_VERSION: '20'
 
 permissions:
   id-token: write
   contents: read
 
-env:
-  AZURE_WEBAPP_NAME: pii-multiagent-frontend
-  AZURE_RG: rg-pii-multiagent
-
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Next.js application
+        working-directory: frontend
+        env:
+          BACKEND_URL: http://20.96.145.19:8000
+        run: pnpm run build
 
       - name: Azure Login (OIDC)
         uses: azure/login@v2
@@ -35,24 +55,13 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Install Dependencies
-        run: cd frontend && npm ci
-
-      - name: Build Next.js
-        run: cd frontend && npm run build
-        env:
-          BACKEND_URL: ${{ secrets.BACKEND_URL }}
-
       - name: Prepare Deployment Package
+        working-directory: frontend
         run: |
           mkdir -p /tmp/deploy/.next
 
-          # Debug: show standalone structure
-          echo "=== Standalone structure ==="
-          find frontend/.next/standalone -type f -name "server.js" | head -5
-
-          # Find the server.js - it's usually in a nested path matching the build machine's directory structure
-          SERVER_JS=$(find frontend/.next/standalone -type f -name "server.js" ! -path "*/node_modules/*" | head -1)
+          # Find the server.js in standalone output
+          SERVER_JS=$(find .next/standalone -type f -name "server.js" ! -path "*/node_modules/*" | head -1)
 
           if [ -z "$SERVER_JS" ]; then
             echo "ERROR: server.js not found in standalone output"
@@ -62,24 +71,24 @@ jobs:
           STANDALONE_PATH=$(dirname "$SERVER_JS")
           echo "Found standalone path: $STANDALONE_PATH"
 
-          # Copy files
+          # Copy standalone files
           cp "$STANDALONE_PATH/server.js" /tmp/deploy/
           cp "$STANDALONE_PATH/package.json" /tmp/deploy/
           cp -r "$STANDALONE_PATH/node_modules" /tmp/deploy/
 
-          # Copy .next server files if they exist
+          # Copy .next server files
           if [ -d "$STANDALONE_PATH/.next" ]; then
             cp -r "$STANDALONE_PATH/.next"/* /tmp/deploy/.next/
           fi
 
-          # Copy static files (always from build root)
-          cp -r frontend/.next/static /tmp/deploy/.next/static
+          # Copy static files
+          cp -r .next/static /tmp/deploy/.next/static
 
           # Create public directory
           mkdir -p /tmp/deploy/public
-          cp -r frontend/public/* /tmp/deploy/public/ 2>/dev/null || true
+          cp -r public/* /tmp/deploy/public/ 2>/dev/null || true
 
-          # Create zip
+          # Create zip package
           cd /tmp/deploy && zip -r /tmp/app.zip .
 
           echo "=== Deployment package contents ==="
@@ -95,18 +104,35 @@ jobs:
             --type zip \
             --restart true
 
-      - name: Configure App Service
+      - name: Configure App Service settings
         run: |
           az webapp config appsettings set \
-            --name $AZURE_WEBAPP_NAME \
             --resource-group $AZURE_RG \
+            --name $AZURE_WEBAPP_NAME \
             --settings \
-              BACKEND_URL="${{ secrets.BACKEND_URL }}" \
-              WEBSITE_VNET_ROUTE_ALL=1 \
+              BACKEND_URL="http://20.96.145.19:8000" \
+              NODE_ENV="production" \
               PORT=3000 \
               WEBSITES_PORT=3000
 
           az webapp config set \
-            --name $AZURE_WEBAPP_NAME \
             --resource-group $AZURE_RG \
+            --name $AZURE_WEBAPP_NAME \
             --startup-file "node server.js"
+
+      - name: Verify deployment
+        run: |
+          echo "Waiting for deployment to stabilize..."
+          sleep 30
+
+          echo "Checking App Service health..."
+          WEBAPP_URL="https://$AZURE_WEBAPP_NAME.azurewebsites.net"
+
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$WEBAPP_URL" || echo "000")
+
+          if [ "$HTTP_STATUS" = "200" ]; then
+            echo "Frontend is healthy: $WEBAPP_URL"
+          else
+            echo "Warning: Frontend returned status $HTTP_STATUS"
+            echo "This may be normal during initial deployment. Check Azure Portal for details."
+          fi
