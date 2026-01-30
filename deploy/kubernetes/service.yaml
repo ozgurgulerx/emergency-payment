@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: emrgpay-backend
+  namespace: emrgpay
+  annotations:
+    # Using public LoadBalancer since App Service is in a different region
+    service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path: /health
+spec:
+  type: LoadBalancer
+  selector:
+    app: emrgpay-backend
+  ports:
+    - name: http
+      protocol: TCP
+      port: 8000
+      targetPort: 8000

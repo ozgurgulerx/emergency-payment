@@ -4,68 +4,72 @@
 
 @layer base {
   :root {
-    /* Light Theme - "Ivory Ledger" */
-    --background: 40 20% 98%;
+    /* Light Theme - "Ivory Ledger" with Green Accents */
+    --background: 150 10% 98%;
     --foreground: 220 20% 10%;
-    --card: 40 15% 96%;
+    --card: 150 8% 96%;
     --card-foreground: 220 20% 10%;
-    --popover: 40 15% 96%;
+    --popover: 150 8% 96%;
     --popover-foreground: 220 20% 10%;
-    --primary: 220 15% 20%;
-    --primary-foreground: 40 20% 98%;
-    --secondary: 40 10% 92%;
+    --primary: 160 60% 35%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 150 8% 92%;
     --secondary-foreground: 220 15% 25%;
-    --muted: 40 10% 92%;
+    --muted: 150 8% 92%;
     --muted-foreground: 220 10% 45%;
-    --accent: 43 74% 49%;
-    --accent-foreground: 220 20% 10%;
+    --accent: 152 60% 40%;
+    --accent-foreground: 0 0% 100%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
-    --border: 40 15% 88%;
-    --input: 40 15% 88%;
-    --ring: 43 74% 49%;
+    --border: 150 10% 88%;
+    --input: 150 10% 88%;
+    --ring: 152 60% 40%;
     --gold: 43 74% 49%;
     --gold-foreground: 220 20% 10%;
-    --success: 142 71% 45%;
+    --success: 152 70% 40%;
     --success-foreground: 0 0% 100%;
     --warning: 38 92% 50%;
     --warning-foreground: 220 20% 10%;
-    --surface-1: 40 15% 96%;
-    --surface-2: 40 12% 94%;
-    --surface-3: 40 10% 92%;
+    --teal: 168 70% 40%;
+    --teal-foreground: 0 0% 100%;
+    --surface-1: 150 8% 96%;
+    --surface-2: 150 7% 94%;
+    --surface-3: 150 6% 92%;
     --radius: 0.625rem;
   }
 
   .dark {
-    /* Dark Theme - "Obsidian Ledger" */
-    --background: 225 15% 8%;
-    --foreground: 40 10% 92%;
-    --card: 225 12% 11%;
-    --card-foreground: 40 10% 92%;
-    --popover: 225 12% 11%;
-    --popover-foreground: 40 10% 92%;
-    --primary: 43 60% 55%;
-    --primary-foreground: 225 15% 8%;
-    --secondary: 225 10% 18%;
-    --secondary-foreground: 40 10% 85%;
-    --muted: 225 10% 18%;
-    --muted-foreground: 40 5% 55%;
-    --accent: 43 60% 55%;
-    --accent-foreground: 225 15% 8%;
+    /* Dark Theme - "Obsidian Ledger" with Green Accents */
+    --background: 180 15% 6%;
+    --foreground: 150 10% 92%;
+    --card: 175 12% 9%;
+    --card-foreground: 150 10% 92%;
+    --popover: 175 12% 9%;
+    --popover-foreground: 150 10% 92%;
+    --primary: 160 55% 50%;
+    --primary-foreground: 180 15% 6%;
+    --secondary: 175 10% 16%;
+    --secondary-foreground: 150 10% 85%;
+    --muted: 175 10% 16%;
+    --muted-foreground: 150 5% 55%;
+    --accent: 160 55% 50%;
+    --accent-foreground: 180 15% 6%;
     --destructive: 0 62% 50%;
     --destructive-foreground: 0 0% 100%;
-    --border: 225 10% 18%;
-    --input: 225 10% 18%;
-    --ring: 43 60% 55%;
+    --border: 175 10% 16%;
+    --input: 175 10% 16%;
+    --ring: 160 55% 50%;
     --gold: 43 60% 55%;
-    --gold-foreground: 225 15% 8%;
-    --success: 142 71% 45%;
+    --gold-foreground: 180 15% 6%;
+    --success: 160 60% 45%;
     --success-foreground: 0 0% 100%;
     --warning: 38 92% 50%;
-    --warning-foreground: 225 15% 8%;
-    --surface-1: 225 12% 11%;
-    --surface-2: 225 11% 14%;
-    --surface-3: 225 10% 17%;
+    --warning-foreground: 180 15% 6%;
+    --teal: 168 60% 45%;
+    --teal-foreground: 0 0% 100%;
+    --surface-1: 175 12% 9%;
+    --surface-2: 175 11% 12%;
+    --surface-3: 175 10% 15%;
   }
 }
 
@@ -75,23 +79,48 @@
   }
   body {
     @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
   }
 }
 
 /* Gold gradient text */
 .text-gold-gradient {
-  @apply bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 bg-clip-text text-transparent;
+  background: linear-gradient(135deg, hsl(43, 60%, 55%) 0%, hsl(43, 40%, 45%) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Teal/Green gradient text */
+.text-teal-gradient {
+  background: linear-gradient(135deg, hsl(160, 60%, 50%) 0%, hsl(168, 70%, 40%) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Combined gold-teal gradient */
+.text-accent-gradient {
+  background: linear-gradient(135deg, hsl(160, 55%, 50%) 0%, hsl(43, 60%, 55%) 50%, hsl(168, 60%, 45%) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 /* Gold glow effect */
 .glow-gold {
-  box-shadow: 0 0 20px hsl(var(--gold) / 0.3);
+  box-shadow: 0 0 20px -5px hsl(43, 60%, 45%, 0.3);
+}
+
+/* Teal glow effect */
+.glow-teal {
+  box-shadow: 0 0 20px -5px hsl(160, 55%, 45%, 0.3);
 }
 
 /* Surface elevation classes */
-.surface-1 { @apply bg-surface-1; }
-.surface-2 { @apply bg-surface-2; }
-.surface-3 { @apply bg-surface-3; }
+.surface-1 { background-color: hsl(var(--surface-1)); }
+.surface-2 { background-color: hsl(var(--surface-2)); }
+.surface-3 { background-color: hsl(var(--surface-3)); }
 
 /* Hairline border */
 .border-hairline {
@@ -110,6 +139,63 @@
 .candidate-b { @apply border-purple-500/50 bg-purple-500/10; }
 .candidate-c { @apply border-emerald-500/50 bg-emerald-500/10; }
 
+/* Citation chips */
+.citation-chip {
+  @apply inline-flex items-center justify-center h-5 min-w-[1.25rem] px-1
+         text-xs font-medium bg-gold/20 text-gold border border-gold/30
+         rounded cursor-pointer hover:bg-gold/30 transition-colors;
+}
+.citation-chip.active {
+  @apply bg-gold text-background;
+}
+
+/* Markdown content styling */
+.markdown-content {
+  @apply leading-relaxed;
+}
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3 {
+  @apply font-semibold tracking-tight mt-6 mb-3;
+}
+.markdown-content code {
+  @apply font-mono text-sm bg-muted px-1.5 py-0.5 rounded;
+}
+.markdown-content pre {
+  @apply bg-muted p-4 rounded-lg overflow-x-auto my-4;
+}
+.markdown-content table {
+  @apply w-full border-collapse my-4;
+}
+.markdown-content th {
+  @apply bg-muted font-medium border border-border px-3 py-2 text-left text-sm;
+}
+.markdown-content td {
+  @apply border border-border px-3 py-2 text-sm;
+}
+.markdown-content tr:nth-child(even) {
+  @apply bg-muted/50;
+}
+.markdown-content ul,
+.markdown-content ol {
+  @apply pl-6 my-2 space-y-1;
+}
+.markdown-content ul {
+  @apply list-disc;
+}
+.markdown-content ol {
+  @apply list-decimal;
+}
+.markdown-content p {
+  @apply my-2;
+}
+.markdown-content a {
+  @apply text-gold hover:underline;
+}
+.markdown-content blockquote {
+  @apply border-l-2 border-gold/50 pl-4 my-4 text-muted-foreground italic;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 8px;
@@ -117,13 +203,107 @@
 }
 
 ::-webkit-scrollbar-track {
-  @apply bg-surface-2;
+  @apply bg-transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-border rounded-full;
+  @apply bg-border/50 rounded-full;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-muted-foreground/50;
+  @apply bg-muted-foreground/30;
+}
+
+/* Animations */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--muted)) 0%,
+    hsl(var(--surface-3)) 50%,
+    hsl(var(--muted)) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes scan-line {
+  0% {
+    top: 0%;
+  }
+  50% {
+    top: 100%;
+  }
+  100% {
+    top: 0%;
+  }
+}
+
+.scan-line {
+  @apply absolute inset-x-0 h-0.5 bg-gradient-to-r from-transparent via-teal-500 to-transparent;
+  animation: scan-line 2s ease-in-out infinite;
+}
+
+/* Glass effect */
+.glass {
+  @apply bg-background/80 backdrop-blur-sm;
+}
+
+/* Focus ring */
+.focus-ring {
+  @apply focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:ring-offset-2 focus:ring-offset-background;
+}
+
+/* Input styles */
+.input-base {
+  @apply w-full bg-surface-2 border border-border rounded-xl px-4 py-3
+         text-sm placeholder:text-muted-foreground resize-none
+         focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500/50
+         transition-all disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+/* Button styles */
+.btn-primary {
+  @apply bg-gradient-to-r from-teal-500 to-emerald-500
+         hover:from-teal-600 hover:to-emerald-600
+         text-white font-medium rounded-xl px-6 py-3
+         transition-all duration-200 shadow-lg shadow-teal-500/20
+         disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.btn-gold {
+  @apply bg-gradient-to-r from-amber-500 to-orange-500
+         hover:from-amber-600 hover:to-orange-600
+         text-white font-medium rounded-xl px-6 py-3
+         transition-all duration-200 shadow-lg shadow-amber-500/20
+         disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.btn-ghost {
+  @apply bg-transparent hover:bg-surface-2
+         text-foreground font-medium rounded-xl px-4 py-2
+         transition-all duration-200;
+}
+
+/* Card hover effect */
+.card-hover {
+  @apply transition-all duration-200 hover:shadow-lg hover:shadow-black/5
+         hover:border-teal-500/30 hover:-translate-y-0.5;
+}
+
+/* Pulse animation for live indicators */
+.pulse-live {
+  @apply relative;
+}
+.pulse-live::before {
+  content: '';
+  @apply absolute inset-0 rounded-full bg-current animate-ping opacity-75;
 }

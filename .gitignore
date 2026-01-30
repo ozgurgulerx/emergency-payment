@@ -44,6 +44,11 @@ logs/
 *.local
 .claude/
 
+# SQLite databases
+*.db
+*.sqlite
+*.sqlite3
+
 # Large documentation files (optional - uncomment to exclude)
 # docu/*.pdf
 docu/*.pdf

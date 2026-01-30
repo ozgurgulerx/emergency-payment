@@ -5,9 +5,7 @@ on:
     branches: [main]
     paths:
       - 'backend/**'
-      - 'worker/**'
-      - 'Dockerfile.backend'
-      - 'k8s/**'
+      - 'deploy/**'
   workflow_dispatch:
 
 permissions:
@@ -15,11 +13,11 @@ permissions:
   contents: read
 
 env:
-  ACR: aistartuptr.azurecr.io
-  IMAGE: pii-multiagent-backend
-  AKS_CLUSTER: aks-pii-multiagent
-  AKS_RG: rg-pii-multiagent
-  NAMESPACE: pii-multiagent
+  ACR: acremrgpay.azurecr.io
+  IMAGE: emrgpay-backend
+  AKS_CLUSTER: aks-emrgpay
+  AKS_RG: rg-emrgpay
+  NAMESPACE: emrgpay
 
 jobs:
   build-and-deploy:
@@ -36,8 +34,8 @@ jobs:
 
       - name: Build and Push to ACR
         run: |
-          az acr login --name aistartuptr
-          docker build -f Dockerfile.backend -t $ACR/$IMAGE:${{ github.sha }} -t $ACR/$IMAGE:latest .
+          az acr login --name acremrgpay
+          docker build -f backend/Dockerfile -t $ACR/$IMAGE:${{ github.sha }} -t $ACR/$IMAGE:latest ./backend
           docker push $ACR/$IMAGE:${{ github.sha }}
           docker push $ACR/$IMAGE:latest
 
@@ -45,29 +43,27 @@ jobs:
         run: |
           az aks get-credentials --resource-group $AKS_RG --name $AKS_CLUSTER
 
-          # Apply K8s manifests
-          kubectl apply -f k8s/namespace.yaml
-          kubectl apply -f k8s/backend-configmap.yaml
-          kubectl apply -f k8s/redis-deployment.yaml
-          kubectl apply -f k8s/backend-service.yaml
+          # Apply K8s manifests from deploy/kubernetes
+          kubectl apply -f deploy/kubernetes/namespace.yaml
+          kubectl apply -f deploy/kubernetes/configmap.yaml
+          kubectl apply -f deploy/kubernetes/serviceaccount.yaml
+          kubectl apply -f deploy/kubernetes/service.yaml
 
           # Create/Update secrets from GitHub secrets
-          kubectl create secret generic backend-secrets \
+          kubectl create secret generic emrgpay-secrets \
             --namespace=$NAMESPACE \
-            --from-literal=AZURE_OPENAI_API_KEY=${{ secrets.AZURE_OPENAI_API_KEY }} \
-            --from-literal=AZURE_SEARCH_ADMIN_KEY=${{ secrets.AZURE_SEARCH_ADMIN_KEY }} \
-            --from-literal=PGPASSWORD=${{ secrets.PGPASSWORD }} \
+            --from-literal=AZURE_AI_FOUNDRY_KEY=${{ secrets.AZURE_AI_FOUNDRY_KEY }} \
             --dry-run=client -o yaml | kubectl apply -f -
 
           # Apply deployment
-          kubectl apply -f k8s/backend-deployment.yaml
+          kubectl apply -f deploy/kubernetes/deployment.yaml
 
           # Update image
-          kubectl set image deployment/pii-multiagent-backend \
+          kubectl set image deployment/emrgpay-backend \
             backend=$ACR/$IMAGE:${{ github.sha }} -n $NAMESPACE
 
           # Wait for rollout
-          kubectl rollout status deployment/pii-multiagent-backend -n $NAMESPACE --timeout=300s
+          kubectl rollout status deployment/emrgpay-backend -n $NAMESPACE --timeout=300s
 
       - name: Verify Deployment
         run: |

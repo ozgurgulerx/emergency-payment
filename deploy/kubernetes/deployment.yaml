@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: emrgpay-backend
+  namespace: emrgpay
+  labels:
+    app: emrgpay-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: emrgpay-backend
+  template:
+    metadata:
+      labels:
+        app: emrgpay-backend
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: emrgpay-backend
+      containers:
+        - name: backend
+          image: acremrgpay.azurecr.io/emrgpay-backend:latest
+          ports:
+            - containerPort: 8000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: emrgpay-config
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+      volumes:
+        - name: data
+          emptyDir: {}

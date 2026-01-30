@@ -1,254 +1,375 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
-  ArrowRight,
-  MessageSquare,
-  Compass,
-  History,
-  Brain,
+  Send,
   Shield,
-  LineChart,
-  Sparkles,
-  Users,
-  Target,
+  Banknote,
+  FileCheck,
+  ArrowRight,
+  History,
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  Building2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export default function HomePage() {
   const router = useRouter();
+  const [message, setMessage] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const capabilities = [
-    {
-      icon: Brain,
-      title: "Dynamic Orchestrator",
-      description: "LLM-powered orchestrator dynamically assigns tasks to specialized agents",
-    },
-    {
-      icon: Users,
-      title: "Multi-Agent Collaboration",
-      description: "5 specialized agents: Market, Risk, Return, Optimizer, Compliance",
-    },
-    {
-      icon: LineChart,
-      title: "Real-Time Visibility",
-      description: "Watch agent reasoning and decisions unfold in Mission Control",
-    },
+  const handleSubmit = async () => {
+    if (!message.trim() || isSubmitting) return;
+
+    setIsSubmitting(true);
+    try {
+      const response = await fetch("/api/runbook/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: message.trim() }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        router.push(`/runs/${data.run_id}`);
+      } else {
+        console.error("Failed to start runbook");
+        setIsSubmitting(false);
+      }
+    } catch (error) {
+      console.error("Error:", error);
+      setIsSubmitting(false);
+    }
+  };
+
+  const examples = [
+    "Release $250,000 USD to ACME Corp Inc for Q4 supplies",
+    "Process urgent payment of €150,000 to Deutsche Bank AG",
+    "Transfer $500,000 to Global Trade Partners Ltd",
+    "Pay £75,000 to Smith & Associates for consulting fees",
+  ];
+
+  const agents = [
     {
       icon: Shield,
-      title: "Full Explainability",
-      description: "Every decision includes reasoning, evidence, and alternatives considered",
+      name: "Sanctions Screening",
+      description: "OFAC SDN list verification",
+      color: "red",
     },
     {
-      icon: Target,
-      title: "Personalized Portfolios",
-      description: "Tailored to your risk appetite, constraints, and investment themes",
+      icon: Banknote,
+      name: "Liquidity Check",
+      description: "Buffer threshold validation",
+      color: "blue",
     },
     {
-      icon: Sparkles,
-      title: "Hedge-Fund Grade",
-      description: "Professional-quality optimization with institutional best practices",
+      icon: FileCheck,
+      name: "Procedures",
+      description: "Approval matrix & workflow",
+      color: "emerald",
+    },
+  ];
+
+  const decisionCategories = [
+    {
+      category: "Release",
+      color: "emerald",
+      icon: CheckCircle2,
+      decisions: [
+        { label: "RELEASE", description: "Immediate processing" },
+        { label: "RELEASE_WITH_CONDITIONS", description: "With requirements" },
+        { label: "PARTIAL_RELEASE", description: "Partial amount" },
+      ],
+    },
+    {
+      category: "Hold",
+      color: "amber",
+      icon: Clock,
+      decisions: [
+        { label: "HOLD_PENDING_APPROVAL", description: "Awaiting approver" },
+        { label: "HOLD_PENDING_DOCUMENTATION", description: "Missing docs" },
+        { label: "HOLD_DUAL_CONTROL", description: "Dual authorization" },
+      ],
+    },
+    {
+      category: "Escalate",
+      color: "orange",
+      icon: AlertTriangle,
+      decisions: [
+        { label: "ESCALATE_COMPLIANCE", description: "Compliance review" },
+        { label: "ESCALATE_MANAGEMENT", description: "Management review" },
+        { label: "ESCALATE_LEGAL", description: "Legal review" },
+      ],
+    },
+    {
+      category: "Reject",
+      color: "red",
+      icon: Shield,
+      decisions: [
+        { label: "REJECT_SANCTIONS", description: "Sanctions match" },
+        { label: "REJECT_LIQUIDITY", description: "Insufficient funds" },
+        { label: "REJECT_POLICY", description: "Policy violation" },
+        { label: "REJECT_FRAUD_RISK", description: "Fraud indicators" },
+      ],
     },
   ];
 
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="border-b border-border/30 backdrop-blur-sm bg-background/80 sticky top-0 z-50">
+      <header className="border-b border-border/30 glass sticky top-0 z-50">
         <div className="container mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 via-amber-600 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/20">
-              <span className="text-white font-bold text-lg">P</span>
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-500 via-emerald-500 to-green-600 flex items-center justify-center shadow-lg shadow-teal-500/20">
+              <Building2 className="w-5 h-5 text-white" />
             </div>
             <div>
-              <span className="font-semibold text-lg block leading-tight">Portfolio Optimizer</span>
-              <span className="text-xs text-muted-foreground">Multi-Agent System</span>
+              <span className="font-semibold text-lg block leading-tight">Emergency Payment</span>
+              <span className="text-xs text-muted-foreground">Runbook Processing System</span>
             </div>
           </div>
-          <Button variant="ghost" size="sm" onClick={() => router.push("/ic")}>
-            Legacy Dashboard
+          <Button variant="ghost" size="sm" onClick={() => router.push("/history")}>
+            <History className="w-4 h-4 mr-2" />
+            History
           </Button>
         </div>
       </header>
 
-      {/* Hero */}
-      <main className="container mx-auto px-6">
+      <main className="container mx-auto px-6 py-12">
+        {/* Hero Section */}
         <motion.div
-          initial={{ opacity: 0, y: 30 }}
+          initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
-          className="text-center max-w-4xl mx-auto py-20"
+          className="max-w-4xl mx-auto text-center mb-12"
         >
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ delay: 0.1, duration: 0.5 }}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-500 text-sm mb-6"
-          >
-            <Sparkles className="w-4 h-4" />
-            AI-Powered Portfolio Construction
-          </motion.div>
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-teal-500/10 border border-teal-500/20 text-teal-500 text-sm mb-6">
+            <Shield className="w-4 h-4" />
+            Compliance-First Payment Processing
+          </div>
 
-          <h1 className="text-5xl md:text-6xl font-bold tracking-tight mb-6 leading-tight">
-            Institutional-Grade
+          <h1 className="text-4xl md:text-5xl font-bold tracking-tight mb-4">
+            Emergency Payment
             <br />
-            <span className="text-gold-gradient">Portfolio Optimization</span>
+            <span className="text-teal-gradient">Runbook</span>
           </h1>
-          <p className="text-xl text-muted-foreground mb-12 max-w-2xl mx-auto leading-relaxed">
-            Watch our multi-agent system construct your optimal portfolio in real-time.
-            Full transparency into every decision, every trade-off, every recommendation.
+
+          <p className="text-lg text-muted-foreground mb-8 max-w-2xl mx-auto">
+            Process urgent payments with automated sanctions screening, liquidity checks,
+            and operational procedure compliance. Full audit trail included.
           </p>
+        </motion.div>
 
-          {/* Three Entry Points */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
-            {/* Guided Onboarding */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2, duration: 0.4 }}
-              className="group relative"
-            >
-              <div className="absolute inset-0 bg-gradient-to-br from-amber-500/20 to-orange-500/20 rounded-2xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity" />
-              <button
-                onClick={() => router.push("/onboarding")}
-                className="relative w-full p-8 rounded-2xl bg-card border border-border/50 hover:border-amber-500/50 transition-all text-left group-hover:shadow-lg group-hover:shadow-amber-500/5"
-              >
-                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center mb-5 shadow-lg shadow-amber-500/20">
-                  <Compass className="w-7 h-7 text-white" />
-                </div>
-                <h3 className="font-semibold text-lg mb-2">Guided Onboarding</h3>
-                <p className="text-muted-foreground text-sm mb-4">
-                  Step-by-step wizard to define your investment profile and constraints
-                </p>
-                <div className="flex items-center text-amber-500 text-sm font-medium">
-                  Start guided setup
-                  <ArrowRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
-                </div>
-              </button>
-            </motion.div>
+        {/* Payment Input */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="max-w-3xl mx-auto mb-12"
+        >
+          <div className="p-6 rounded-2xl bg-card border border-border/50">
+            <label className="block text-sm font-medium mb-3">
+              Describe your payment request
+            </label>
+            <textarea
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              placeholder="e.g., Release $250,000 USD to ACME Corp Inc for Q4 supplies"
+              className="input-base min-h-[120px] mb-4"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && e.metaKey) handleSubmit();
+              }}
+            />
 
-            {/* Chat-First */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3, duration: 0.4 }}
-              className="group relative"
-            >
-              <div className="absolute inset-0 bg-gradient-to-br from-blue-500/20 to-indigo-500/20 rounded-2xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity" />
-              <button
-                onClick={() => router.push("/onboarding?mode=chat")}
-                className="relative w-full p-8 rounded-2xl bg-card border border-border/50 hover:border-blue-500/50 transition-all text-left group-hover:shadow-lg group-hover:shadow-blue-500/5"
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-muted-foreground">
+                Press <kbd className="px-1.5 py-0.5 rounded bg-surface-2 text-xs">⌘ Enter</kbd> to submit
+              </p>
+              <Button
+                onClick={handleSubmit}
+                disabled={!message.trim() || isSubmitting}
+                className="btn-primary"
               >
-                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center mb-5 shadow-lg shadow-blue-500/20">
-                  <MessageSquare className="w-7 h-7 text-white" />
-                </div>
-                <h3 className="font-semibold text-lg mb-2">Chat with Advisor</h3>
-                <p className="text-muted-foreground text-sm mb-4">
-                  Tell us your goals in natural language and we&apos;ll build your profile
-                </p>
-                <div className="flex items-center text-blue-500 text-sm font-medium">
-                  Start conversation
-                  <ArrowRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
-                </div>
-              </button>
-            </motion.div>
+                {isSubmitting ? (
+                  <span className="flex items-center gap-2">
+                    <Clock className="w-4 h-4 animate-spin" />
+                    Processing...
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-2">
+                    Process Payment
+                    <Send className="w-4 h-4" />
+                  </span>
+                )}
+              </Button>
+            </div>
 
-            {/* Previous Runs */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.4, duration: 0.4 }}
-              className="group relative"
-            >
-              <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/20 to-teal-500/20 rounded-2xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity" />
-              <button
-                onClick={() => router.push("/ic")}
-                className="relative w-full p-8 rounded-2xl bg-card border border-border/50 hover:border-emerald-500/50 transition-all text-left group-hover:shadow-lg group-hover:shadow-emerald-500/5"
-              >
-                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center mb-5 shadow-lg shadow-emerald-500/20">
-                  <History className="w-7 h-7 text-white" />
-                </div>
-                <h3 className="font-semibold text-lg mb-2">Previous Runs</h3>
-                <p className="text-muted-foreground text-sm mb-4">
-                  View history, replay workflows, and export previous portfolios
-                </p>
-                <div className="flex items-center text-emerald-500 text-sm font-medium">
-                  View history
-                  <ArrowRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
-                </div>
-              </button>
-            </motion.div>
+            {/* Example Requests */}
+            <div className="mt-6 pt-4 border-t border-border/30">
+              <p className="text-xs text-muted-foreground mb-3">Quick examples:</p>
+              <div className="flex flex-wrap gap-2">
+                {examples.map((example) => (
+                  <button
+                    key={example}
+                    onClick={() => setMessage(example)}
+                    className="text-xs px-3 py-1.5 rounded-full bg-surface-2 hover:bg-surface-3 transition-colors text-left"
+                  >
+                    {example.length > 50 ? example.slice(0, 50) + "..." : example}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </motion.div>
 
-        {/* Capabilities */}
+        {/* Agent Pipeline */}
         <motion.div
-          initial={{ opacity: 0, y: 40 }}
+          initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.5 }}
-          className="py-16"
+          transition={{ delay: 0.2 }}
+          className="max-w-4xl mx-auto mb-12"
         >
-          <h2 className="text-2xl font-bold text-center mb-12">
-            How It Works
+          <h2 className="text-xl font-semibold text-center mb-6">
+            Three-Agent Compliance Pipeline
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {capabilities.map((cap, index) => (
-              <motion.div
-                key={cap.title}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: 0.6 + 0.1 * index }}
-                className="p-6 rounded-xl bg-surface-1 border border-border/30"
-              >
-                <cap.icon className="w-8 h-8 text-amber-500 mb-4" />
-                <h3 className="font-semibold mb-2">{cap.title}</h3>
-                <p className="text-muted-foreground text-sm">{cap.description}</p>
-              </motion.div>
-            ))}
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {agents.map((agent, index) => {
+              const Icon = agent.icon;
+              return (
+                <div key={agent.name} className="relative">
+                  <div className={`p-5 rounded-xl bg-surface-1 border border-border/30 hover:border-${agent.color}-500/30 transition-colors`}>
+                    <div className="flex items-start gap-3">
+                      <div className={`w-10 h-10 rounded-lg bg-${agent.color}-500/10 flex items-center justify-center flex-shrink-0`}>
+                        <Icon className={`w-5 h-5 text-${agent.color}-500`} />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-muted-foreground">Agent {index + 1}</span>
+                        </div>
+                        <h3 className="font-semibold">{agent.name}</h3>
+                        <p className="text-sm text-muted-foreground">{agent.description}</p>
+                      </div>
+                    </div>
+                  </div>
+                  {index < agents.length - 1 && (
+                    <div className="hidden md:flex absolute top-1/2 -right-2 transform -translate-y-1/2 z-10">
+                      <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </motion.div>
 
-        {/* Agent Preview */}
+        {/* Decision Types */}
         <motion.div
-          initial={{ opacity: 0, y: 40 }}
+          initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.8 }}
-          className="py-16"
+          transition={{ delay: 0.3 }}
+          className="max-w-5xl mx-auto"
         >
-          <div className="p-8 rounded-2xl bg-gradient-to-br from-surface-1 to-surface-2 border border-border/30">
-            <h2 className="text-2xl font-bold text-center mb-8">
-              Meet Your Agent Team
+          <div className="text-center mb-6">
+            <h2 className="text-xl font-semibold">
+              Dynamic Decision Outcomes
             </h2>
-            <div className="flex flex-wrap justify-center gap-4">
-              {[
-                { name: "Orchestrator", role: "Coordinator", color: "amber" },
-                { name: "Market Agent", role: "Data & Universe", color: "blue" },
-                { name: "Risk Agent", role: "Constraints", color: "red" },
-                { name: "Return Agent", role: "Forecasting", color: "green" },
-                { name: "Optimizer Agent", role: "Allocation", color: "purple" },
-                { name: "Compliance Agent", role: "Verification", color: "cyan" },
-              ].map((agent) => (
+            <p className="text-sm text-muted-foreground mt-1">
+              20+ possible decisions based on risk scoring, compliance checks, and dynamic conditions
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {decisionCategories.map((category) => {
+              const Icon = category.icon;
+              return (
                 <div
-                  key={agent.name}
-                  className={`flex items-center gap-3 px-5 py-3 rounded-full bg-${agent.color}-500/10 border border-${agent.color}-500/20`}
+                  key={category.category}
+                  className={`p-4 rounded-xl bg-${category.color}-500/5 border border-${category.color}-500/20`}
                 >
-                  <div className={`w-3 h-3 rounded-full bg-${agent.color}-500`} />
-                  <div>
-                    <span className="font-medium text-sm block">{agent.name}</span>
-                    <span className="text-xs text-muted-foreground">{agent.role}</span>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Icon className={`w-5 h-5 text-${category.color}-500`} />
+                    <span className={`font-semibold text-${category.color}-500`}>{category.category}</span>
+                  </div>
+                  <div className="space-y-2">
+                    {category.decisions.map((decision) => (
+                      <div key={decision.label} className="flex items-start gap-2">
+                        <span className={`w-1.5 h-1.5 rounded-full bg-${category.color}-500 mt-1.5 flex-shrink-0`} />
+                        <div>
+                          <p className="text-xs font-medium">{decision.label.replace(/_/g, " ")}</p>
+                          <p className="text-xs text-muted-foreground">{decision.description}</p>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              ))}
+              );
+            })}
+          </div>
+
+          {/* Risk Score Indicator */}
+          <div className="mt-6 p-4 rounded-xl bg-surface-1 border border-border/30">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm font-medium">Risk Score Spectrum</span>
+              <span className="text-xs text-muted-foreground">Influences decision routing</span>
+            </div>
+            <div className="h-2 rounded-full bg-gradient-to-r from-emerald-500 via-amber-500 via-orange-500 to-red-500" />
+            <div className="flex justify-between mt-2 text-xs text-muted-foreground">
+              <span>0 - Low Risk</span>
+              <span>25 - Medium</span>
+              <span>50 - High</span>
+              <span>75 - Critical</span>
+              <span>100</span>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Features */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4 }}
+          className="max-w-4xl mx-auto mt-16"
+        >
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-center">
+            <div>
+              <div className="w-12 h-12 rounded-xl bg-teal-500/10 flex items-center justify-center mx-auto mb-3">
+                <Shield className="w-6 h-6 text-teal-500" />
+              </div>
+              <h3 className="font-semibold mb-1">OFAC Compliance</h3>
+              <p className="text-sm text-muted-foreground">
+                Real-time sanctions screening against SDN list
+              </p>
+            </div>
+            <div>
+              <div className="w-12 h-12 rounded-xl bg-emerald-500/10 flex items-center justify-center mx-auto mb-3">
+                <FileCheck className="w-6 h-6 text-emerald-500" />
+              </div>
+              <h3 className="font-semibold mb-1">Full Audit Trail</h3>
+              <p className="text-sm text-muted-foreground">
+                Complete documentation with policy citations
+              </p>
+            </div>
+            <div>
+              <div className="w-12 h-12 rounded-xl bg-green-500/10 flex items-center justify-center mx-auto mb-3">
+                <Clock className="w-6 h-6 text-green-500" />
+              </div>
+              <h3 className="font-semibold mb-1">Real-Time Processing</h3>
+              <p className="text-sm text-muted-foreground">
+                Watch each agent process your request live
+              </p>
             </div>
           </div>
         </motion.div>
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-border/30 mt-12">
-        <div className="container mx-auto px-6 py-8 text-center text-muted-foreground text-sm">
-          Portfolio Optimizer - Powered by Multi-Agent Orchestration
+      <footer className="border-t border-border/30 mt-16">
+        <div className="container mx-auto px-6 py-6 text-center text-muted-foreground text-sm">
+          Emergency Payment Runbook - Multi-Agent Compliance System
         </div>
       </footer>
     </div>
