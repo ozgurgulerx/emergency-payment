@@ -538,7 +538,7 @@ export default function RunPage() {
             </AnimatePresence>
 
             {/* Operational Procedures Summary - Always visible when decision exists */}
-            {decision && (decision.procedure_checklist?.length > 0 || decision.approvals_required?.length > 0) && (
+            {decision && ((decision.procedure_checklist?.length ?? 0) > 0 || (decision.approvals_required?.length ?? 0) > 0) && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
