@@ -392,6 +392,7 @@ export async function* generateMockEvents(
   // ============================================
 
   // Policy Agent (always first)
+  yield* executeHandover(state, "orchestrator", "policy_agent", "Starting with policy parsing", d);
   yield* executeAgent(state, "policy_agent", "Parsing investor policy statement", d);
 
   // Market Agent
@@ -399,10 +400,11 @@ export async function* generateMockEvents(
   yield* executeAgent(state, "market_agent", "Retrieving market data and building universe", d);
 
   // Data Quality Agent
-  yield* executeHandover(state, "data_quality_agent", "data_quality_agent", "Validating data quality", d);
+  yield* executeHandover(state, "market_agent", "data_quality_agent", "Validating data quality", d);
   yield* executeAgent(state, "data_quality_agent", "Checking data freshness and completeness", d);
 
   // Fork: Risk + Return in parallel
+  yield* executeHandover(state, "data_quality_agent", "risk_agent", "Data validated, starting risk analysis", d);
   yield toRunEvent(
     createEvent(runId, traceId, "branch.fork", "orchestrator", "Orchestrator", "Forking: Risk and Return agents run in parallel", {
       branchType: "fork",
@@ -414,6 +416,7 @@ export async function* generateMockEvents(
 
   // Execute both "in parallel" (sequentially for simplicity but shown as parallel)
   yield* executeAgent(state, "risk_agent", "Computing VaR and volatility constraints", d);
+  yield* executeHandover(state, "data_quality_agent", "return_agent", "Data validated, starting return forecasting", d);
   yield* executeAgent(state, "return_agent", "Forecasting expected returns", d);
 
   yield toRunEvent(
@@ -426,6 +429,7 @@ export async function* generateMockEvents(
 
   // Conditional: Scenario Stress Agent
   if (state.currentAgentIds.includes("scenario_stress_agent")) {
+    yield* executeHandover(state, "risk_agent", "scenario_stress_agent", "Running stress scenarios", d);
     yield* executeAgent(state, "scenario_stress_agent", "Running stress test scenarios", d);
 
     // Simulate stress breaches for conservative profiles
@@ -436,11 +440,13 @@ export async function* generateMockEvents(
 
   // Conditional: Liquidity TC Agent
   if (state.currentAgentIds.includes("liquidity_tc_agent")) {
+    yield* executeHandover(state, "return_agent", "liquidity_tc_agent", "Evaluating liquidity", d);
     yield* executeAgent(state, "liquidity_tc_agent", "Evaluating transaction costs and turnover", d);
   }
 
   // Conditional: Hedge Tail Agent
   if (state.currentAgentIds.includes("hedge_tail_agent")) {
+    yield* executeHandover(state, "risk_agent", "hedge_tail_agent", "Analyzing tail hedges", d);
     yield* executeAgent(state, "hedge_tail_agent", "Analyzing tail risk mitigation options", d);
   }
 
@@ -450,8 +456,12 @@ export async function* generateMockEvents(
 
   const hasChallengerOptimizer = state.currentAgentIds.includes("challenger_optimizer_agent");
 
+  // Handover to optimizer from risk/return agents
+  yield* executeHandover(state, "risk_agent", "optimizer_agent", "Constraints ready, starting optimization", d);
+
   if (hasChallengerOptimizer) {
     // Fork: Multiple solvers
+    yield* executeHandover(state, "optimizer_agent", "challenger_optimizer_agent", "Running challenger optimizers", d);
     yield toRunEvent(
       createEvent(runId, traceId, "branch.fork", "orchestrator", "Orchestrator", "Forking: Running parallel optimization solvers", {
         branchType: "fork",
@@ -483,7 +493,15 @@ export async function* generateMockEvents(
   // 5. GATE VALIDATION PER CANDIDATE
   // ============================================
 
+  // Gate validation phase
+  let firstCandidate = true;
   for (const [candidateId, candidate] of state.candidates) {
+    if (firstCandidate) {
+      // Add handover to compliance agent for first candidate
+      yield* executeHandover(state, hasChallengerOptimizer ? "challenger_optimizer_agent" : "optimizer_agent", "compliance_agent", "Validating compliance", d);
+      firstCandidate = false;
+    }
+
     // Compliance gate (always)
     yield* validateGate(state, candidateId, "compliance", d);
 
@@ -494,6 +512,7 @@ export async function* generateMockEvents(
 
     // RedTeam gate (if included)
     if (state.currentAgentIds.includes("red_team_agent")) {
+      yield* executeHandover(state, "compliance_agent", "red_team_agent", "Red team validation", d);
       yield* validateGate(state, candidateId, "redteam", d);
     }
 
@@ -602,10 +621,13 @@ export async function* generateMockEvents(
 
   // Rebalance Planner (if included)
   if (state.currentAgentIds.includes("rebalance_planner_agent")) {
+    yield* executeHandover(state, "optimizer_agent", "rebalance_planner_agent", "Planning rebalancing trades", d);
     yield* executeAgent(state, "rebalance_planner_agent", "Generating trade list and drift bands", d);
   }
 
   // Explain Memo Agent (always)
+  const prevAgent = state.currentAgentIds.includes("rebalance_planner_agent") ? "rebalance_planner_agent" : "optimizer_agent";
+  yield* executeHandover(state, prevAgent, "explain_memo_agent", "Generating explanation", d);
   yield* executeAgent(state, "explain_memo_agent", "Generating IC memo and decision explanations", d);
 
   // Emit portfolio explanation
@@ -619,6 +641,7 @@ export async function* generateMockEvents(
   await d(300);
 
   // Audit Provenance Agent (always)
+  yield* executeHandover(state, "explain_memo_agent", "audit_provenance_agent", "Finalizing audit", d);
   yield* executeAgent(state, "audit_provenance_agent", "Finalizing audit trail", d);
 
   // ============================================
@@ -735,8 +758,8 @@ async function* executeHandover(
 
   yield toRunEvent(
     createEvent(state.runId, state.traceId, "handover", "orchestrator", "Orchestrator", `Handover: ${fromAgent.name} → ${toAgent.name}`, {
-      fromAgent: fromAgent.name,
-      toAgent: toAgent.name,
+      fromAgent: fromAgentId,  // Use ID instead of name for graph connections
+      toAgent: toAgentId,      // Use ID instead of name for graph connections
       reason,
     } as HandoverEventData as unknown as Record<string, unknown>)
   );
@@ -749,7 +772,7 @@ async function* createCandidate(
   solver: string,
   d: (ms: number) => Promise<void>
 ): AsyncGenerator<RunEvent> {
-  const allocations = generateAllocations(state.policy);
+  const allocations = generateAllocations(state.policy, solver);
   const metrics = generateMetrics(state.policy, solver);
 
   const candidate: CandidateEventData = {
@@ -953,17 +976,45 @@ function generateEvidence(agentId: string, policy: PolicyInput): { type: string;
   return evidenceMap[agentId] || { type: "insight", summary: "Processing completed", confidence: 0.90 };
 }
 
-function generateAllocations(policy: PolicyInput): Record<string, number> {
+function generateAllocations(policy: PolicyInput, solver: string = "Mean-Variance"): Record<string, number> {
   const isConservative = policy.riskTolerance === "conservative";
   const isAggressive = policy.riskTolerance === "aggressive" || policy.riskTolerance === "very_aggressive";
 
+  // Base allocations by risk profile
+  let base: Record<string, number>;
   if (isConservative) {
-    return { BND: 0.35, VCSH: 0.15, BNDX: 0.10, VTI: 0.20, VXUS: 0.10, VNQ: 0.05, CASH: 0.05 };
+    base = { BND: 0.35, VCSH: 0.15, BNDX: 0.10, VTI: 0.20, VXUS: 0.10, VNQ: 0.05, CASH: 0.05 };
   } else if (isAggressive) {
-    return { VTI: 0.40, QQQ: 0.15, VXUS: 0.15, VWO: 0.05, BND: 0.15, VNQ: 0.05, CASH: 0.05 };
+    base = { VTI: 0.40, QQQ: 0.15, VXUS: 0.15, VWO: 0.05, BND: 0.15, VNQ: 0.05, CASH: 0.05 };
   } else {
-    return { VTI: 0.35, VXUS: 0.15, BND: 0.30, BNDX: 0.10, VNQ: 0.05, CASH: 0.05 };
+    base = { VTI: 0.35, VXUS: 0.15, BND: 0.30, BNDX: 0.10, VNQ: 0.05, CASH: 0.05 };
   }
+
+  // Solver-specific adjustments to make candidates different
+  if (solver === "CVaR") {
+    // CVaR is more conservative, shift toward bonds
+    return {
+      ...base,
+      VTI: (base.VTI || 0) - 0.05,
+      BND: (base.BND || 0) + 0.05,
+      QQQ: (base.QQQ || 0) - 0.03,
+      VCSH: (base.VCSH || 0) + 0.03,
+    };
+  } else if (solver === "Risk Parity") {
+    // Risk Parity balances risk across asset classes
+    return {
+      ...base,
+      VTI: (base.VTI || 0) - 0.08,
+      VXUS: (base.VXUS || 0) + 0.02,
+      BND: (base.BND || 0) + 0.03,
+      BNDX: (base.BNDX || 0) + 0.03,
+      VNQ: (base.VNQ || 0),
+      CASH: (base.CASH || 0),
+    };
+  }
+
+  // Mean-Variance returns base allocation
+  return base;
 }
 
 function generateMetrics(
