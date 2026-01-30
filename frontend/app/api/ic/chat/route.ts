@@ -277,22 +277,43 @@ function processWithRules(message: string, currentPolicy: Policy): ChatResponse 
 
   // Themes/Sectors - use word boundary matching to avoid false positives
   const themeKeywords: Record<string, string> = {
+    // Technology
     "\\bai\\b": "AI",
     "artificial intelligence": "AI",
+    "ai ecosystem": "AI",
     "\\btech\\b": "technology",
     "technology": "technology",
+    // Healthcare
     "healthcare": "healthcare",
     "biotech": "biotechnology",
+    // Energy
     "clean energy": "clean_energy",
     "renewable": "clean_energy",
     "solar": "clean_energy",
     "\\bev\\b": "electric_vehicles",
     "electric vehicle": "electric_vehicles",
+    // Finance
     "fintech": "fintech",
     "crypto": "cryptocurrency",
     "blockchain": "blockchain",
+    // Real Assets
     "real estate": "real_estate",
     "infrastructure": "infrastructure",
+    // Regional - NEW
+    "\\basia\\b": "Asia",
+    "asian": "Asia",
+    "china": "China",
+    "chinese": "China",
+    "india": "India",
+    "indian": "India",
+    "emerging market": "Emerging_Markets",
+    "emerging markets": "Emerging_Markets",
+    "\\bem\\b": "Emerging_Markets",
+    "europe": "Europe",
+    "european": "Europe",
+    "japan": "Japan",
+    "japanese": "Japan",
+    "latin america": "Latin_America",
   };
 
   const currentThemes = policy.preferences.preferred_themes || [];
@@ -324,13 +345,26 @@ function processWithRules(message: string, currentPolicy: Policy): ChatResponse 
     }
   }
 
-  // Target return
-  const returnMatch = lowerMessage.match(/(\d+(?:\.\d+)?)\s*%?\s*(?:return|yield|target)/i);
-  if (returnMatch) {
-    const targetReturn = parseFloat(returnMatch[1]);
-    if (targetReturn > 0 && targetReturn <= 50) {
-      policy.benchmark_settings.target_return = targetReturn;
-      updates.push(`Target return → ${targetReturn}%`);
+  // Target return - multiple patterns
+  // Pattern 1: "X% return/yield/target"
+  // Pattern 2: "grow X%", "grow at least X%"
+  // Pattern 3: "X% yoy/annually/per year"
+  const returnPatterns = [
+    /(\d+(?:\.\d+)?)\s*%?\s*(?:return|yield|target)/i,
+    /grow\s+(?:at\s+least\s+)?(\d+(?:\.\d+)?)\s*%/i,
+    /(\d+(?:\.\d+)?)\s*%\s*(?:yoy|year.over.year|annually|annual|per\s+year)/i,
+    /target(?:ing)?\s+(\d+(?:\.\d+)?)\s*%/i,
+  ];
+
+  for (const pattern of returnPatterns) {
+    const returnMatch = lowerMessage.match(pattern);
+    if (returnMatch) {
+      const targetReturn = parseFloat(returnMatch[1]);
+      if (targetReturn > 0 && targetReturn <= 100) {
+        policy.benchmark_settings.target_return = targetReturn;
+        updates.push(`Target return → ${targetReturn}%`);
+        break; // Use first match
+      }
     }
   }
 
