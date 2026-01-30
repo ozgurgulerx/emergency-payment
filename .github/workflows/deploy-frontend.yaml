@@ -13,7 +13,7 @@ permissions:
 
 env:
   AZURE_WEBAPP_NAME: emrgpay-frontend
-  AZURE_RG: rg-pii-multiagent
+  AZURE_RG: rg-emrgpay
 
 jobs:
   build-and-deploy:
