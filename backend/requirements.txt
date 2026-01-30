@@ -21,7 +21,7 @@ azure-search-documents==11.6.0b7
 openai==1.54.3
 
 # Microsoft Agent Framework
-agent-framework>=0.1.0
+agent-framework==1.0.0b260128
 
 # Redis for event streaming
 redis==5.2.0
