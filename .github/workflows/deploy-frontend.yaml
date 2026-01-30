@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 env:
-  AZURE_WEBAPP_NAME: pii-multiagent-frontend
+  AZURE_WEBAPP_NAME: emrgpay-frontend
   AZURE_RG: rg-pii-multiagent
 
 jobs:
