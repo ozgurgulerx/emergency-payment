@@ -20,6 +20,9 @@ azure-cosmos==4.7.0
 azure-search-documents==11.6.0b7
 openai==1.54.3
 
+# Microsoft Agent Framework
+agent-framework>=0.1.0
+
 # Redis for event streaming
 redis==5.2.0
 

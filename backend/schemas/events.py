@@ -63,6 +63,21 @@ class EventKind(str, Enum):
     PROGRESS_UPDATE = "progress_update"
     HEARTBEAT = "heartbeat"
 
+    # Orchestrator events (NEW)
+    ORCHESTRATOR_DELEGATED = "orchestrator.delegated"
+    ORCHESTRATOR_DECISION = "orchestrator.decision"
+    ORCHESTRATOR_CONFLICT = "orchestrator.conflict"
+    ORCHESTRATOR_RESOLVED = "orchestrator.resolved"
+
+    # Agent events with full visibility (NEW)
+    AGENT_STATUS = "agent.status"
+    AGENT_EVIDENCE = "agent.evidence"
+    AGENT_REASONING = "agent.reasoning"
+
+    # Portfolio events (NEW)
+    PORTFOLIO_UPDATE = "portfolio.update"
+    PORTFOLIO_METRICS = "portfolio.metrics"
+
 
 class WorkflowEvent(BaseModel):
     """

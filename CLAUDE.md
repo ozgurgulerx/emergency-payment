@@ -62,3 +62,62 @@ af-pii-multi-agent/
 - ACR: aistartuptr.azurecr.io
 - Backend image: ic-autopilot-backend
 - Frontend image: ic-autopilot-frontend
+
+## Agent Framework Architecture
+
+The backend uses Microsoft Agent Framework for Python (`agent-framework` package) for multi-agent orchestration.
+
+### Key Components
+
+#### Agents (`backend/agents/`)
+- **ChatAgent**: Core agent class from Agent Framework
+- **AzureOpenAIChatClient**: Azure OpenAI integration with `DefaultAzureCredential`
+- **@ai_function decorator**: Tool/function definitions (NOT @tool)
+
+Agents:
+- `market.py` - Market data and universe building
+- `risk.py` - Risk analysis (VaR, stress tests)
+- `return_agent.py` - Return forecasting
+- `optimizer.py` - Portfolio optimization
+- `compliance.py` - Regulatory compliance
+
+#### Orchestration Patterns (`backend/orchestrator/`)
+
+Available workflow types (via `workflow_type` parameter):
+
+| Type | Builder | Description |
+|------|---------|-------------|
+| `sequential` | `SequentialBuilder` | Linear: Market → Risk → Return → Optimizer → Compliance |
+| `concurrent` | `ConcurrentBuilder` | Parallel risk/return with fan-out/fan-in aggregation |
+| `handoff` | `HandoffBuilder` | Coordinator delegates to specialists (recommended) |
+| `magentic` | `MagenticBuilder` | LLM-powered dynamic planning and execution |
+| `dag` | `WorkflowBuilder` | Custom directed acyclic graph with explicit edges |
+| `group_chat` | `GroupChatBuilder` | Multi-agent consensus discussions |
+
+#### Event Flow
+- Workflow events stream via Redis Streams
+- SSE endpoint: `/api/ic/runs/{run_id}/events`
+- Event types: `workflow.started`, `executor.invoked`, `agent.completed`, `workflow.output`
+
+#### Key Files
+- `backend/orchestrator/engine.py` - OrchestratorEngine with checkpointing
+- `backend/orchestrator/workflows.py` - Workflow factory functions
+- `backend/orchestrator/executors.py` - Custom Executor classes
+- `backend/orchestrator/middleware.py` - Event emission, ContextProviders
+
+### Agent Framework Features Used
+
+1. **ChatAgent** - Core agent with instructions and tools
+2. **@ai_function** - Tool/function decorator (Azure AI compatible)
+3. **Workflow Builders** - Sequential, Concurrent, Handoff, Magentic, DAG, GroupChat
+4. **WorkflowContext** - State passing in custom executors
+5. **Workflow Events** - ExecutorInvokedEvent, AgentRunEvent, etc.
+6. **InMemoryCheckpointStorage** - Fault tolerance checkpointing
+7. **ContextProvider** - Evidence injection into agent calls
+
+### API Endpoints
+
+- `POST /api/ic/policy` - Start orchestrator run (accepts `workflow_type` param)
+- `GET /api/ic/workflows` - List available workflow patterns
+- `GET /api/ic/runs/{run_id}/events` - SSE event stream
+- `GET /api/ic/policy/templates` - Pre-defined IPS templates

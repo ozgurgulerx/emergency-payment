@@ -103,6 +103,14 @@ class RunSummary(BaseModel):
     selected_candidate: Optional[str]
 
 
+class OrchestratorRunResponse(BaseModel):
+    """Response after starting an orchestrator run."""
+    run_id: str
+    status: str
+    message: str
+    policy_id: str
+
+
 # ============================================================================
 # Health & Info Endpoints
 # ============================================================================
@@ -294,6 +302,269 @@ async def list_runs(
 
 
 # ============================================================================
+# Orchestrator Endpoints (NEW - Dynamic Multi-Agent System)
+# ============================================================================
+
+@app.post("/api/ic/policy", response_model=OrchestratorRunResponse)
+async def start_orchestrator_run(
+    policy: dict,
+    background_tasks: BackgroundTasks,
+    workflow_type: Optional[str] = "handoff",
+):
+    """
+    Start a new orchestrator run with an Investor Policy Statement.
+
+    Uses Microsoft Agent Framework workflow patterns for orchestration.
+
+    Workflow Types:
+    - sequential: Linear agent execution (Market → Risk → Return → Optimizer → Compliance)
+    - concurrent: Parallel risk/return analysis with fan-out/fan-in aggregation
+    - handoff: Coordinator delegates to specialist agents (default, recommended)
+    - magentic: LLM-powered dynamic planning and execution
+    - dag: Custom directed acyclic graph workflow
+
+    Returns immediately with run_id - use SSE to track progress with full
+    orchestrator decision visibility.
+    """
+    from schemas.policy import InvestorPolicyStatement
+    import uuid
+
+    # Validate workflow type
+    valid_types = ["sequential", "concurrent", "handoff", "magentic", "dag", "group_chat"]
+    if workflow_type not in valid_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid workflow_type. Must be one of: {', '.join(valid_types)}"
+        )
+
+    try:
+        # Validate and parse policy
+        ips = InvestorPolicyStatement.model_validate(policy)
+
+        # Generate run ID with workflow type prefix
+        run_id = f"{workflow_type[:3]}-{uuid.uuid4().hex[:8]}"
+
+        # Store run metadata
+        run_store = await get_run_store()
+        await run_store.create_run(
+            mandate_id=f"policy:{ips.policy_id}",
+            seed=42,
+            config={
+                "orchestrator_mode": True,
+                "policy_id": ips.policy_id,
+                "workflow_type": workflow_type,
+            },
+        )
+
+        # Start orchestrator in background with selected workflow type
+        background_tasks.add_task(
+            execute_orchestrator_workflow,
+            run_id,
+            ips,
+            workflow_type,
+        )
+
+        logger.info(
+            "orchestrator_run_started",
+            run_id=run_id,
+            policy_id=ips.policy_id,
+            workflow_type=workflow_type,
+            portfolio_value=ips.investor_profile.portfolio_value,
+        )
+
+        return OrchestratorRunResponse(
+            run_id=run_id,
+            status="started",
+            message=f"Orchestrator run started with {workflow_type} workflow. Subscribe to /api/ic/runs/{run_id}/events for real-time progress.",
+            policy_id=ips.policy_id,
+        )
+
+    except Exception as e:
+        logger.error("orchestrator_start_failed", error=str(e), workflow_type=workflow_type)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/ic/workflows")
+async def get_workflow_types():
+    """
+    Get available orchestration workflow types.
+
+    Returns information about each workflow pattern supported by the orchestrator.
+    """
+    return {
+        "workflow_types": [
+            {
+                "id": "sequential",
+                "name": "Sequential",
+                "description": "Linear agent execution: Market → Risk → Return → Optimizer → Compliance",
+                "use_case": "Simple, predictable workflows where each step depends on the previous",
+                "agents_flow": ["market_agent", "risk_agent", "return_agent", "optimizer_agent", "compliance_agent"],
+            },
+            {
+                "id": "concurrent",
+                "name": "Concurrent (Fan-out/Fan-in)",
+                "description": "Parallel risk and return analysis with aggregation",
+                "use_case": "When risk and return analysis can run independently",
+                "agents_flow": ["[risk_agent, return_agent] → aggregator"],
+            },
+            {
+                "id": "handoff",
+                "name": "Handoff (Recommended)",
+                "description": "Coordinator delegates to specialist agents based on needs",
+                "use_case": "Dynamic routing where a coordinator decides which specialist to invoke",
+                "agents_flow": ["coordinator → [risk_agent | return_agent | optimizer_agent | compliance_agent]"],
+                "is_default": True,
+            },
+            {
+                "id": "magentic",
+                "name": "Magentic-One",
+                "description": "LLM-powered dynamic planning and execution with adaptive replanning",
+                "use_case": "Complex tasks requiring dynamic planning and multi-round orchestration",
+                "agents_flow": ["manager → dynamic agent selection based on plan"],
+            },
+            {
+                "id": "dag",
+                "name": "DAG (Directed Acyclic Graph)",
+                "description": "Custom execution graph with fan-out from market to risk/return, then fan-in",
+                "use_case": "Complex workflows with explicit parallel and sequential sections",
+                "agents_flow": ["policy_parser → market → [risk, return] → aggregator → optimizer → compliance → finalizer"],
+            },
+            {
+                "id": "group_chat",
+                "name": "Group Chat (Consensus)",
+                "description": "Multi-agent round-robin discussion for consensus building",
+                "use_case": "When multiple perspectives needed for complex decisions requiring debate and consensus",
+                "agents_flow": ["[risk_advisor, return_advisor, portfolio_architect, compliance_reviewer] → round-robin discussion → consensus"],
+            },
+        ],
+        "default": "handoff",
+    }
+
+
+@app.get("/api/ic/policy/templates")
+async def get_policy_templates():
+    """Get predefined IPS templates for quick start."""
+    from schemas.policy import (
+        create_conservative_ips,
+        create_balanced_ips,
+        create_aggressive_ips,
+    )
+
+    return {
+        "templates": [
+            {
+                "id": "conservative",
+                "name": "Conservative",
+                "description": "Low risk, capital preservation focus",
+                "policy": create_conservative_ips().model_dump(),
+            },
+            {
+                "id": "balanced",
+                "name": "Balanced",
+                "description": "Moderate risk, balanced growth",
+                "policy": create_balanced_ips().model_dump(),
+            },
+            {
+                "id": "aggressive",
+                "name": "Aggressive Growth",
+                "description": "Higher risk, growth focus",
+                "policy": create_aggressive_ips().model_dump(),
+            },
+        ]
+    }
+
+
+@app.post("/api/ic/chat")
+async def chat_with_advisor(message: dict):
+    """
+    Chat endpoint for natural language policy creation.
+
+    Takes a user message and returns an updated policy suggestion.
+    This powers the chat panel in the onboarding flow.
+    """
+    from schemas.policy import InvestorPolicyStatement, create_balanced_ips
+
+    user_message = message.get("message", "")
+    current_policy = message.get("current_policy")
+
+    # Start with current policy or default
+    if current_policy:
+        ips = InvestorPolicyStatement.model_validate(current_policy)
+    else:
+        ips = create_balanced_ips()
+
+    # Simple keyword-based policy updates (in production, use LLM)
+    response_text = "I've updated your policy based on your input."
+    updates = []
+
+    user_lower = user_message.lower()
+
+    # Risk tolerance keywords
+    if any(word in user_lower for word in ["conservative", "safe", "low risk", "preserve"]):
+        ips.risk_appetite.risk_tolerance = "conservative"
+        ips.risk_appetite.max_volatility = 8.0
+        ips.risk_appetite.max_drawdown = 10.0
+        ips.constraints.max_equity = 0.4
+        updates.append("Set conservative risk profile")
+        response_text = "I've set your profile to conservative with lower equity exposure and tighter risk limits."
+
+    elif any(word in user_lower for word in ["aggressive", "growth", "high return"]):
+        ips.risk_appetite.risk_tolerance = "aggressive"
+        ips.risk_appetite.max_volatility = 20.0
+        ips.risk_appetite.max_drawdown = 25.0
+        ips.constraints.max_equity = 0.9
+        updates.append("Set aggressive risk profile")
+        response_text = "I've set your profile to aggressive growth with higher equity allocation."
+
+    # Portfolio value keywords
+    import re
+    value_match = re.search(r'\$?([\d,]+(?:\.\d+)?)\s*(?:million|m|k)?', user_lower)
+    if value_match:
+        value_str = value_match.group(1).replace(',', '')
+        value = float(value_str)
+        if 'million' in user_lower or 'm' in user_lower.split():
+            value *= 1_000_000
+        elif 'k' in user_lower.split():
+            value *= 1_000
+        if value >= 10000:
+            ips.investor_profile.portfolio_value = value
+            updates.append(f"Set portfolio value to ${value:,.0f}")
+
+    # Exclusion keywords
+    if any(word in user_lower for word in ["no tobacco", "exclude tobacco", "tobacco free"]):
+        from schemas.policy import ExclusionRule
+        ips.preferences.exclusions.append(
+            ExclusionRule(type="sector", value="Tobacco", reason="User preference")
+        )
+        updates.append("Added tobacco exclusion")
+        response_text = "I've added tobacco to your exclusion list."
+
+    if any(word in user_lower for word in ["esg", "sustainable", "green", "responsible"]):
+        ips.preferences.esg_focus = True
+        ips.preferences.min_esg_score = 60
+        updates.append("Enabled ESG screening")
+        response_text = "I've enabled ESG screening for your portfolio."
+
+    # Theme keywords
+    if "ai" in user_lower or "artificial intelligence" in user_lower:
+        if "AI" not in ips.preferences.preferred_themes:
+            ips.preferences.preferred_themes.append("AI")
+        updates.append("Added AI theme")
+
+    if "technology" in user_lower or "tech" in user_lower:
+        if "Technology" not in ips.preferences.preferred_themes:
+            ips.preferences.preferred_themes.append("Technology")
+        updates.append("Added Technology theme")
+
+    return {
+        "response": response_text,
+        "updates": updates,
+        "policy": ips.model_dump(),
+        "summary": ips.summary(),
+    }
+
+
+# ============================================================================
 # Workflow Execution (Background Task)
 # ============================================================================
 
@@ -350,6 +621,144 @@ async def execute_workflow(run_id: str):
                 level="error",
                 message=f"Run failed: {str(e)}",
             ))
+        except Exception:
+            pass
+
+
+async def execute_orchestrator_workflow(run_id: str, policy, workflow_type: str = "handoff"):
+    """
+    Execute the orchestrator-based workflow using Agent Framework patterns.
+
+    Supports multiple orchestration strategies:
+    - sequential: Linear agent execution (Market → Risk → Return → Optimizer → Compliance)
+    - concurrent: Parallel risk/return analysis with fan-out/fan-in
+    - handoff: Coordinator delegates to specialist agents (default)
+    - magentic: LLM-powered dynamic planning and execution
+    - dag: Custom directed acyclic graph workflow
+
+    Args:
+        run_id: Unique identifier for this run
+        policy: InvestorPolicyStatement from onboarding
+        workflow_type: Orchestration pattern to use (default: "handoff")
+    """
+    from backend.orchestrator.engine import OrchestratorEngine
+    from backend.orchestrator.workflows import WorkflowType
+
+    logger.info(
+        "orchestrator_workflow_started",
+        run_id=run_id,
+        policy_id=policy.policy_id,
+        workflow_type=workflow_type,
+    )
+
+    run_store = None
+    event_bus = None
+
+    try:
+        run_store = await get_run_store()
+        event_bus = await get_event_bus()
+
+        # Update run status
+        await run_store.update_run_status(run_id, RunStatus.RUNNING)
+
+        # Create event emitter callback for real-time updates
+        async def emit_event(event_type: str, payload: dict):
+            """Emit events to Redis for SSE streaming."""
+            # Map workflow events to our event kinds
+            event_kind = EventKind.PROGRESS_UPDATE
+            if "started" in event_type:
+                event_kind = EventKind.RUN_STARTED
+            elif "completed" in event_type:
+                event_kind = EventKind.RUN_COMPLETED
+            elif "failed" in event_type:
+                event_kind = EventKind.RUN_FAILED
+
+            await event_bus.publish(WorkflowEvent(
+                run_id=run_id,
+                kind=event_kind,
+                message=payload.get("reasoning", payload.get("summary", str(event_type))),
+                payload={
+                    "event_type": event_type,
+                    "workflow_type": workflow_type,
+                    **payload,
+                },
+            ))
+
+        # Emit run started with workflow type
+        await event_bus.publish(WorkflowEvent(
+            run_id=run_id,
+            kind=EventKind.RUN_STARTED,
+            message=f"Orchestrator started with {workflow_type} workflow pattern",
+            payload={
+                "policy_summary": policy.summary(),
+                "workflow_type": workflow_type,
+                "workflow_patterns": {
+                    "sequential": "Linear agent execution",
+                    "concurrent": "Parallel fan-out/fan-in",
+                    "handoff": "Coordinator-based delegation",
+                    "magentic": "LLM-powered dynamic planning",
+                    "dag": "Custom execution graph",
+                },
+            },
+        ))
+
+        # Create orchestrator with selected workflow type
+        orchestrator = OrchestratorEngine(
+            run_id=run_id,
+            event_emitter=emit_event,
+            workflow_type=workflow_type,
+        )
+
+        # Run orchestrator - uses Agent Framework workflow patterns internally
+        portfolio = await orchestrator.run(policy)
+
+        # Update run status
+        await run_store.update_run_status(run_id, RunStatus.COMPLETED)
+
+        # Emit completion with portfolio and decision trace
+        await event_bus.publish(WorkflowEvent(
+            run_id=run_id,
+            kind=EventKind.RUN_COMPLETED,
+            message=f"Portfolio optimization completed using {workflow_type} workflow",
+            payload={
+                "allocations": portfolio.allocations,
+                "metrics": portfolio.metrics,
+                "workflow_type": workflow_type,
+                "decision_count": len(orchestrator.plan.decisions) if orchestrator.plan else 0,
+                "evidence_count": len(orchestrator.plan.evidence) if orchestrator.plan else 0,
+            },
+        ))
+
+        logger.info(
+            "orchestrator_workflow_completed",
+            run_id=run_id,
+            workflow_type=workflow_type,
+            allocations=portfolio.allocations,
+            decision_count=len(orchestrator.plan.decisions) if orchestrator.plan else 0,
+        )
+
+    except Exception as e:
+        logger.error(
+            "orchestrator_workflow_failed",
+            run_id=run_id,
+            workflow_type=workflow_type,
+            error=str(e),
+        )
+
+        try:
+            if run_store:
+                await run_store.update_run_status(run_id, RunStatus.FAILED, error_message=str(e))
+            if event_bus:
+                await event_bus.publish(WorkflowEvent(
+                    run_id=run_id,
+                    kind=EventKind.RUN_FAILED,
+                    level="error",
+                    message=f"Orchestrator run failed: {str(e)}",
+                    payload={
+                        "error": str(e),
+                        "workflow_type": workflow_type,
+                    },
+                ))
         except Exception:
             pass
 
