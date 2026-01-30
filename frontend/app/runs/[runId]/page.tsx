@@ -831,7 +831,9 @@ export default function RunPage() {
                           <div key={i} className="flex items-center justify-between p-3 rounded-lg bg-surface-1">
                             <div>
                               <p className="text-sm font-medium">{approval.role}</p>
-                              <p className="text-xs text-muted-foreground">{approval.authority}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {("authority" in approval ? approval.authority : (approval as { authority_level?: string }).authority_level) || ""}
+                              </p>
                             </div>
                             <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20">
                               SLA: {approval.sla_hours}h
