@@ -65,11 +65,24 @@ af-pii-multi-agent/
 
 ## Deployment Targets
 
-### New Deployment (rg-pii-multiagent)
-- **Resource Group**: `rg-pii-multiagent` (westeurope)
-- **Backend**: AKS cluster `aks-pii-multiagent`, namespace: `pii-multiagent`
-- **Frontend**: Azure App Service `pii-multiagent-frontend`
-- **VNet**: `vnet-pii-multiagent` (10.1.0.0/16)
+### THIS PROJECT - emrgpay (CORRECT DEPLOYMENT)
+- **Resource Group**: `rg-emrgpay`
+- **Frontend**: Azure App Service `emrgpay-frontend`
+- **Frontend URL**: https://emrgpay-frontend.azurewebsites.net
+- **Location**: West US 2
+- **App Service Plan**: `asp-emrgpay` (B1)
+- **Runtime**: Node 20-lts on Linux
+
+### Model Deployments (Azure OpenAI)
+- **Agents** (Market, Risk, Return, Optimizer, Compliance): `gpt-5-nano`
+  - Environment variable: `AZURE_OPENAI_AGENT_DEPLOYMENT`
+- **Orchestrator** (Magentic Manager, GroupChat Manager): `gpt-5-mini`
+  - Environment variable: `AZURE_OPENAI_ORCHESTRATOR_DEPLOYMENT`
+
+### DO NOT USE - Other Resource Groups
+- ❌ `rg-pii-multiagent` - Different project, do not deploy here
+- ❌ `pii-multiagent-frontend` - Different app service, do not touch
+- ❌ `rg-fund-rag` - Production system, do not touch
 
 ### Shared Resources (READ-ONLY, DO NOT MODIFY)
 - **Database**: PostgreSQL `aistartupstr.postgres.database.azure.com` / `fundrag` / `nport_funds` - **READ-ONLY**
@@ -79,9 +92,12 @@ af-pii-multi-agent/
 
 ## Environment
 
-- ACR: `aistartuptr.azurecr.io`
-- Backend image: `pii-multiagent-backend`
-- Frontend image: Deployed via zip to App Service
+- **ACR**: `aistartuptr.azurecr.io`
+- **Backend image**: `pii-multiagent-backend`
+- **Frontend**: Deployed via zip to `emrgpay-frontend` App Service
+- **GitHub Workflow**: `.github/workflows/deploy-frontend.yaml`
+  - App Service: `emrgpay-frontend`
+  - Resource Group: `rg-emrgpay`
 
 ## Agent Framework Architecture
 
