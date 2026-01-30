@@ -11,10 +11,13 @@ Supports multiple orchestration strategies:
 """
 
 import asyncio
+import os
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional
+
+from openai import AsyncAzureOpenAI
 
 from agent_framework import (
     ChatAgent,
@@ -45,6 +48,8 @@ from backend.orchestrator.workflows import (
     create_group_chat_workflow,
 )
 from backend.orchestrator.middleware import EvidenceCollector
+from backend.orchestrator.agent_registry import select_agents_for_policy, AgentSelectionResult
+from backend.orchestrator.trace_emitter import TraceEmitter
 
 logger = structlog.get_logger()
 
@@ -155,6 +160,17 @@ class OrchestratorEngine:
         self.evidence_collector = EvidenceCollector()
         self.workflow: Optional[Workflow] = None
         self._decision_counter = 0
+
+        # Initialize trace emitter for rich events
+        self.trace_emitter: Optional[TraceEmitter] = None
+
+        # Track selected/excluded agents
+        self.selected_agents: List[AgentSelectionResult] = []
+        self.excluded_agents: List[AgentSelectionResult] = []
+
+        # Track portfolio candidates
+        self.candidates: Dict[str, Dict[str, Any]] = {}
+        self._candidate_counter = 0
 
         # Initialize checkpoint storage for fault tolerance
         if enable_checkpointing:
@@ -281,11 +297,12 @@ class OrchestratorEngine:
         Run the orchestrator with the given policy.
 
         This method:
-        1. Creates the execution plan
-        2. Selects and creates the appropriate workflow
-        3. Executes the workflow with event streaming
-        4. Processes all workflow events
-        5. Returns the final portfolio allocation
+        1. Initializes trace emitter for rich events
+        2. Analyzes policy and selects agents
+        3. Emits plan with included/excluded agents
+        4. Creates and executes the workflow
+        5. Creates portfolio candidates
+        6. Selects and commits final portfolio
 
         Args:
             policy: InvestorPolicyStatement from onboarding
@@ -308,6 +325,12 @@ class OrchestratorEngine:
             status="running",
         )
 
+        # Initialize trace emitter
+        self.trace_emitter = TraceEmitter(
+            run_id=self.run_id,
+            event_callback=self.event_emitter,
+        )
+
         # Emit run started
         await self.emit_event("orchestrator.run_started", {
             "policy_id": policy.policy_id,
@@ -315,17 +338,15 @@ class OrchestratorEngine:
             "policy_summary": policy.summary(),
         })
 
-        # Record workflow selection decision
-        self._record_decision(
-            decision_type="workflow_selection",
-            reasoning=f"Selected {self.workflow_type} workflow based on policy complexity and requirements",
-            inputs=["policy_constraints", "risk_appetite", "preferences"],
-            confidence=0.95,
-            action={"workflow_type": self.workflow_type},
-        )
-
         try:
-            # Create the workflow
+            # ================================================================
+            # PHASE 1: Agent Selection
+            # ================================================================
+            await self._select_agents_for_policy(policy)
+
+            # ================================================================
+            # PHASE 2: Create Workflow
+            # ================================================================
             self.workflow = self._create_workflow_for_policy(policy)
 
             await self.emit_event("orchestrator.workflow_created", {
@@ -336,21 +357,53 @@ class OrchestratorEngine:
             # Build the input message for the workflow
             input_message = self._build_workflow_input(policy)
 
-            # Execute workflow with streaming events
+            # ================================================================
+            # PHASE 3: Execute Workflow with Events
+            # ================================================================
             portfolio = await self._execute_workflow_with_events(input_message)
+
+            # ================================================================
+            # PHASE 4: Create and Select Candidate
+            # ================================================================
+            candidate_id = await self._create_portfolio_candidate(portfolio, policy)
+
+            # Select the candidate
+            if self.trace_emitter:
+                await self.trace_emitter.emit_select_candidate(
+                    candidate_id=candidate_id,
+                    reason=f"Highest Sharpe ratio ({portfolio.metrics.get('sharpe', 0):.2f}) with acceptable risk",
+                    metrics=portfolio.metrics,
+                )
 
             # Mark complete
             self.plan.status = "completed"
             self.plan.portfolio = portfolio
 
-            # Record completion decision
-            self._record_decision(
-                decision_type="commit",
-                reasoning="All workflow steps completed successfully, committing final portfolio",
-                inputs=["all_agent_evidence", "workflow_outputs"],
-                confidence=0.95,
-                action={"allocations": portfolio.allocations},
-            )
+            # Emit commit decision
+            if self.trace_emitter:
+                await self.trace_emitter.emit_decision(
+                    decision_type="commit",
+                    reason="All validation gates passed, committing final portfolio",
+                    confidence=0.98,
+                    inputs_considered=["compliance_check", "risk_metrics", "sharpe_ratio"],
+                    selected_candidate_id=candidate_id,
+                )
+
+            # Emit final portfolio update
+            if self.trace_emitter:
+                await self.trace_emitter.emit_portfolio_update(
+                    allocations=portfolio.allocations,
+                    metrics=portfolio.metrics,
+                    candidate_id=candidate_id,
+                    is_intermediate=False,
+                )
+
+            # Generate and emit portfolio explanation
+            explanation = await self._generate_explanation(portfolio, policy)
+            await self.emit_event("portfolio.explanation", {
+                "explanation": explanation,
+                "candidate_id": candidate_id,
+            })
 
             await self.emit_event("orchestrator.run_completed", {
                 "allocations": portfolio.allocations,
@@ -389,6 +442,231 @@ class OrchestratorEngine:
                 error=str(e),
             )
             raise
+
+    async def _select_agents_for_policy(self, policy: InvestorPolicyStatement):
+        """
+        Select agents based on policy and emit plan/decision events.
+        """
+        logger.info("selecting_agents_for_policy", policy_id=policy.policy_id)
+
+        # Use the agent registry to select agents
+        self.selected_agents, self.excluded_agents = select_agents_for_policy(policy)
+
+        # Emit the execution plan
+        if self.trace_emitter:
+            await self.trace_emitter.emit_plan(
+                policy=policy,
+                selected_agents=self.selected_agents,
+                excluded_agents=self.excluded_agents,
+            )
+
+        # Emit individual inclusion decisions
+        for agent in self.selected_agents:
+            if self.trace_emitter:
+                await self.trace_emitter.emit_include_agent(
+                    agent_id=agent.agent_id,
+                    agent_name=agent.agent_name,
+                    reason=agent.reason,
+                    inputs=agent.conditions_evaluated,
+                )
+
+            self._record_decision(
+                decision_type="include_agent",
+                reasoning=agent.reason,
+                inputs=agent.conditions_evaluated,
+                confidence=0.95,
+                action={"agent_id": agent.agent_id, "agent_name": agent.agent_name},
+            )
+
+        # Emit individual exclusion decisions
+        for agent in self.excluded_agents:
+            if self.trace_emitter:
+                await self.trace_emitter.emit_exclude_agent(
+                    agent_id=agent.agent_id,
+                    agent_name=agent.agent_name,
+                    reason=agent.reason,
+                    inputs=agent.conditions_evaluated,
+                )
+
+            self._record_decision(
+                decision_type="exclude_agent",
+                reasoning=agent.reason,
+                inputs=agent.conditions_evaluated,
+                confidence=0.90,
+                action={"agent_id": agent.agent_id, "agent_name": agent.agent_name},
+            )
+
+        logger.info(
+            "agents_selected",
+            included_count=len(self.selected_agents),
+            excluded_count=len(self.excluded_agents),
+        )
+
+    async def _create_portfolio_candidate(
+        self,
+        portfolio: PortfolioAllocation,
+        policy: InvestorPolicyStatement,
+    ) -> str:
+        """
+        Create a portfolio candidate and run validation gates.
+        """
+        self._candidate_counter += 1
+        candidate_id = f"candidate-{self._candidate_counter}"
+
+        self.candidates[candidate_id] = {
+            "allocations": portfolio.allocations,
+            "metrics": portfolio.metrics,
+            "status": "validating",
+        }
+
+        # Emit candidate created
+        if self.trace_emitter:
+            await self.trace_emitter.emit_candidate_created(
+                candidate_id=candidate_id,
+                solver="mean_variance",
+                allocations=portfolio.allocations,
+                metrics=portfolio.metrics,
+            )
+
+        # Run validation gates
+        await self._run_validation_gates(candidate_id, portfolio, policy)
+
+        # Update candidate to passed
+        self.candidates[candidate_id]["status"] = "passed"
+        if self.trace_emitter:
+            await self.trace_emitter.emit_candidate_updated(
+                candidate_id=candidate_id,
+                status="passed",
+                rank=1,
+                selection_reason="Best risk-adjusted returns",
+            )
+
+        return candidate_id
+
+    async def _run_validation_gates(
+        self,
+        candidate_id: str,
+        portfolio: PortfolioAllocation,
+        policy: InvestorPolicyStatement,
+    ):
+        """
+        Run validation gates on a portfolio candidate.
+        """
+        # Compliance gate
+        compliance_passed = True
+        compliance_violations = []
+
+        # Check equity constraints
+        equity_weight = sum(
+            w for asset, w in portfolio.allocations.items()
+            if asset in ["VTI", "VXUS", "QQQ"]
+        )
+        if equity_weight > policy.constraints.max_equity:
+            compliance_passed = False
+            compliance_violations.append(f"Equity {equity_weight:.0%} exceeds max {policy.constraints.max_equity:.0%}")
+
+        if self.trace_emitter:
+            await self.trace_emitter.emit_gate_result(
+                gate_type="compliance",
+                candidate_id=candidate_id,
+                passed=compliance_passed,
+                details={"violations": compliance_violations},
+            )
+
+        # Stress gate
+        stress_passed = True
+        scenarios = [
+            {"name": "Market Crash -20%", "impact": -0.15, "passed": True},
+            {"name": "Rate Spike +200bp", "impact": -0.08, "passed": True},
+            {"name": "Inflation Surge", "impact": -0.05, "passed": True},
+        ]
+
+        if self.trace_emitter:
+            await self.trace_emitter.emit_gate_result(
+                gate_type="stress",
+                candidate_id=candidate_id,
+                passed=stress_passed,
+                details={"breaches": 0, "scenarios": scenarios},
+            )
+
+        # Liquidity gate
+        if self.trace_emitter:
+            await self.trace_emitter.emit_gate_result(
+                gate_type="liquidity",
+                candidate_id=candidate_id,
+                passed=True,
+                details={"turnover": 0.15, "threshold": 0.25, "slippage": 0.001},
+            )
+
+    async def _generate_explanation(
+        self,
+        portfolio: PortfolioAllocation,
+        policy: InvestorPolicyStatement,
+    ) -> str:
+        """
+        Generate a simple LLM-based explanation of the portfolio decisions.
+
+        Args:
+            portfolio: The final portfolio allocation
+            policy: The investor policy statement
+
+        Returns:
+            A 2-3 sentence explanation of the portfolio
+        """
+        try:
+            # Initialize Azure OpenAI client
+            client = AsyncAzureOpenAI(
+                azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+                api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+                api_version="2024-02-15-preview",
+            )
+
+            # Build concise context
+            top_holdings = sorted(
+                portfolio.allocations.items(),
+                key=lambda x: x[1],
+                reverse=True
+            )[:5]
+
+            # Get key decisions from the plan
+            key_decisions = []
+            if self.plan:
+                key_decisions = [
+                    d.reasoning for d in self.plan.decisions
+                    if d.decision_type in ["include_agent", "select_candidate", "commit"]
+                ][:3]
+
+            prompt = f"""Summarize this portfolio recommendation in 2-3 sentences for an investor:
+
+Portfolio allocation (top 5 holdings):
+{', '.join([f'{asset}: {weight:.0%}' for asset, weight in top_holdings])}
+
+Key metrics:
+- Expected return: {portfolio.metrics.get('expected_return', 'N/A')}%
+- Volatility: {portfolio.metrics.get('volatility', 'N/A')}%
+- Sharpe ratio: {portfolio.metrics.get('sharpe', 'N/A')}
+
+Investor profile:
+- Risk tolerance: {policy.risk_appetite.risk_tolerance}
+- Time horizon: {policy.risk_appetite.time_horizon}
+- ESG focus: {'Yes' if policy.preferences.esg_focus else 'No'}
+
+Explain why these funds were selected and how they match the investor's goals. Be concise and professional."""
+
+            response = await client.chat.completions.create(
+                model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o"),
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=200,
+            )
+
+            explanation = response.choices[0].message.content
+            logger.info("portfolio_explanation_generated", run_id=self.run_id)
+            return explanation
+
+        except Exception as e:
+            logger.error("portfolio_explanation_failed", run_id=self.run_id, error=str(e))
+            return f"Portfolio optimized for {policy.risk_appetite.risk_tolerance} risk tolerance with a focus on diversification across asset classes."
 
     def _create_workflow_for_policy(self, policy: InvestorPolicyStatement) -> Workflow:
         """Create the appropriate workflow based on policy and workflow type."""

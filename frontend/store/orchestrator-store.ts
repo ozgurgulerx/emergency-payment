@@ -79,6 +79,7 @@ export interface PortfolioAllocation {
     var95?: number;
   };
   lastUpdated?: string;
+  explanation?: string;
 }
 
 // NEW: Plan tracking
@@ -466,6 +467,7 @@ export const useOrchestratorStore = create<OrchestratorState>((set, get) => ({
               // 3. Orchestrator itself
               const shouldComplete =
                 agent.status === "running" ||
+                agent.status === "waiting" ||
                 (agent.status === "queued" && plannedAgentIds.has(id)) ||
                 id === "orchestrator";
 
@@ -872,6 +874,16 @@ export const useOrchestratorStore = create<OrchestratorState>((set, get) => ({
           }));
         }
         set({ statusMessage: message || "Portfolio updated" });
+        break;
+      }
+
+      // ============================================
+      // PORTFOLIO EXPLANATION
+      // ============================================
+      case "portfolio.explanation": {
+        const explanation = payload.explanation as string;
+        state.updatePortfolio({ explanation });
+        set({ statusMessage: "Portfolio explanation generated" });
         break;
       }
 

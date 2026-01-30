@@ -92,7 +92,7 @@ function AgentNode({ data }: NodeProps<{ agent: Agent; isInjected?: boolean }>) 
       className={`
         relative px-3 py-2 rounded-xl border-2 transition-all
         ${statusColors[agent.status]}
-        ${isOrchestrator ? "min-w-[140px]" : "min-w-[120px]"}
+        ${isOrchestrator ? "min-w-[140px]" : "min-w-[130px]"}
         ${isInjected ? "ring-2 ring-amber-500/50 ring-offset-1 ring-offset-background" : ""}
       `}
     >
@@ -202,7 +202,8 @@ export function AgentGraph() {
     for (const [rowStr, agentIds] of Object.entries(rowAgents)) {
       const row = parseInt(rowStr);
       const count = agentIds.length;
-      const spacing = 140;
+      // Wider spacing for rows with 2 agents (bottom rows) to ensure names are visible
+      const spacing = count <= 2 ? 180 : 140;
       const startX = 200 - ((count - 1) * spacing) / 2;
 
       agentIds.forEach((id, idx) => {

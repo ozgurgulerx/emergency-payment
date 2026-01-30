@@ -13,7 +13,7 @@ import {
   PieChart,
   Pie,
 } from "recharts";
-import { TrendingUp, TrendingDown, Activity, Shield, Target, Download } from "lucide-react";
+import { TrendingUp, TrendingDown, Activity, Shield, Target, Download, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const assetColors: Record<string, string> = {
@@ -158,6 +158,23 @@ export function PortfolioCanvas() {
               </motion.div>
             ))}
           </div>
+
+          {/* Portfolio Explanation */}
+          {portfolio.explanation && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mt-4 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20"
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <MessageSquare className="w-4 h-4 text-blue-500" />
+                <span className="text-xs font-medium text-blue-400">AI Explanation</span>
+              </div>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                {portfolio.explanation}
+              </p>
+            </motion.div>
+          )}
         </div>
       ) : (
         <div className="flex-1 flex items-center justify-center">
