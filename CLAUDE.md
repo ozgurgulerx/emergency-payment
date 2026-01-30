@@ -8,27 +8,31 @@ The following projects and resources must NEVER be modified:
 - **fund-rag-poc project** - This is a separate production system
 - **rg-fund-rag resource group** - Only add new resources, never modify existing ones
 
-### DATABASE PROTECTION - STRICT & NON-NEGOTIABLE
-**THIS IS AN ABSOLUTE RULE - NO EXCEPTIONS**
+### DATABASE PROTECTION - ABSOLUTE & NON-NEGOTIABLE
+**THIS IS THE MOST CRITICAL RULE - ZERO EXCEPTIONS UNDER ANY CIRCUMSTANCES**
 
-FORBIDDEN ACTIONS (will break production systems):
-- ❌ ALTER TABLE - NEVER change table structure
-- ❌ DROP TABLE - NEVER delete tables
-- ❌ DROP SCHEMA - NEVER delete schemas
-- ❌ TRUNCATE - NEVER empty tables
-- ❌ DELETE FROM - NEVER delete rows from existing tables
-- ❌ UPDATE - NEVER modify existing data
-- ❌ Any DDL on existing objects
+## NEVER TOUCH THE EXISTING DATABASE
+- ❌ **DO NOT** alter, modify, delete, or change ANYTHING in the existing database
+- ❌ **DO NOT** run ANY DDL commands (ALTER, DROP, TRUNCATE, etc.)
+- ❌ **DO NOT** run UPDATE or DELETE on ANY existing table
+- ❌ **DO NOT** modify schemas, tables, indexes, or constraints
+- ❌ **DO NOT** change permissions or roles
+- ❌ **DO NOT** even attempt to "fix" or "improve" existing database objects
 
-ALLOWED ACTIONS (only in ic_autopilot schema):
-- ✅ CREATE SCHEMA ic_autopilot (if not exists)
-- ✅ CREATE TABLE in ic_autopilot schema only
-- ✅ CREATE INDEX in ic_autopilot schema only
-- ✅ INSERT INTO ic_autopilot tables only
-- ✅ SELECT from any table (read-only)
+## IF NEW DATABASE OBJECTS ARE NEEDED:
+- ✅ **CREATE A NEW DATABASE** - do not use existing databases
+- ✅ Or create a completely new schema with a unique name
+- ✅ Only SELECT (read) from existing tables - nothing else
+- ✅ Ask the user before ANY database operation
 
-**The nport_funds schema and all existing tables are READ-ONLY.**
-**Violating these rules will break the fund-rag-poc application.**
+## EXISTING DATABASES ARE OFF-LIMITS:
+- `fundrag` database - **READ-ONLY, DO NOT MODIFY**
+- `nport_funds` schema - **READ-ONLY, DO NOT MODIFY**
+- `public` schema - **DO NOT USE**
+- Any existing tables - **DO NOT TOUCH**
+
+**Breaking this rule will destroy production applications.**
+**When in doubt, ASK THE USER first.**
 
 ### Separate Deployments
 - IC Autopilot uses the `ic-autopilot` namespace - keep it isolated
