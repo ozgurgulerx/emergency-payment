@@ -368,8 +368,11 @@ export default function HomePage() {
 
       {/* Footer */}
       <footer className="border-t border-border/30 mt-16">
-        <div className="container mx-auto px-6 py-6 text-center text-muted-foreground text-sm">
-          Emergency Payment Runbook - Multi-Agent Compliance System
+        <div className="container mx-auto px-6 py-4 flex items-center justify-between text-muted-foreground text-sm">
+          <span>Emergency Payment Runbook - Multi-Agent Compliance System</span>
+          <span className="text-xs">
+            Built by Innovation Hub Istanbul&nbsp;&nbsp;|&nbsp;&nbsp;<a href="mailto:ozgurguler@microsoft.com" className="hover:text-foreground transition-colors">Ozgur Guler</a>
+          </span>
         </div>
       </footer>
     </div>
