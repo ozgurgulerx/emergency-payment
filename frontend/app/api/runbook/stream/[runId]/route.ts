@@ -21,7 +21,6 @@ export async function GET(
           `${BACKEND_URL}/api/runbook/stream/${runId}`,
           {
             headers: { Accept: "text/event-stream" },
-            // @ts-expect-error — Node fetch supports this for streaming
             signal: request.signal,
           }
         );
