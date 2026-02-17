@@ -260,7 +260,7 @@ class WorkflowOrchestrator:
                 run_id,
                 WorkflowStep.INTAKE,
                 result_summary=f"Payment ${payment.amount:,.2f} {payment.currency} to {payment.beneficiary_name}",
-                result_data=payment_context,
+                result_data={"payment": payment_context},
             )
             run_logger.step_completed("intake", f"Parsed payment: {payment.payment_id}")
             timestamps["intake_completed"] = datetime.now(timezone.utc).isoformat()
@@ -903,6 +903,9 @@ class WorkflowOrchestrator:
 
             payment = PaymentRequest(**run_data.request_payload.get("payment", {}))
 
+            # NOTE: start_run already called by start_workflow() — do NOT call again
+            # as it would reset _queues and drop any already-connected SSE subscribers.
+
             # Create workflow
             workflow = create_emergency_payment_workflow(
                 foundry_client=self.foundry_client,
@@ -919,12 +922,10 @@ class WorkflowOrchestrator:
             logger.info(f"Starting agent-framework workflow for run: {run_id}")
 
             # Run workflow
-            async for event in workflow.run(initial_state):
-                # Process workflow events
-                logger.debug(f"Workflow event: {type(event).__name__}")
+            result = await workflow.run(initial_state)
+            logger.info(f"Agent-framework workflow completed for run: {run_id}")
 
-            # Get final output from workflow
-            # The SummarizeExecutor yields the DecisionPacket
+            # Get final output from workflow state
             decision_packet = initial_state.decision_packet
 
             if decision_packet is None:

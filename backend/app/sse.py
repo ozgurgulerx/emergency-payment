@@ -27,16 +27,26 @@ class SSEManager:
         self._sequences: dict[str, int] = defaultdict(int)
         # Start times for elapsed calculation
         self._start_times: dict[str, datetime] = {}
+        # Event buffer for replay to late subscribers
+        self._event_buffers: dict[str, list[str]] = defaultdict(list)
+        # Track whether a run has ended (for immediate close of late subscribers)
+        self._ended_runs: set[str] = set()
         # Lock for thread safety
         self._lock = asyncio.Lock()
 
     async def start_run(self, run_id: str) -> None:
         """Initialize tracking for a new run.
 
+        Idempotent: if already initialized, preserves existing queues
+        so that subscribers connected between calls are not dropped.
+
         Args:
             run_id: Unique run identifier
         """
         async with self._lock:
+            if run_id in self._queues:
+                logger.debug(f"SSE run {run_id} already initialized, skipping reset")
+                return
             self._sequences[run_id] = 0
             self._start_times[run_id] = datetime.now(timezone.utc)
             self._queues[run_id] = []
@@ -44,6 +54,9 @@ class SSEManager:
 
     async def subscribe(self, run_id: str) -> AsyncGenerator[str, None]:
         """Subscribe to SSE events for a run.
+
+        Replays any buffered events first, then streams live events.
+        This ensures no events are lost due to late subscription.
 
         Args:
             run_id: Run identifier to subscribe to
@@ -54,11 +67,26 @@ class SSEManager:
         queue: asyncio.Queue = asyncio.Queue()
 
         async with self._lock:
-            self._queues[run_id].append(queue)
+            # Copy buffered events first, then add queue to subscribers.
+            # This ensures: events before this point are in the buffer,
+            # events after this point will go to our queue.
+            buffered_events = list(self._event_buffers.get(run_id, []))
+            run_already_ended = run_id in self._ended_runs
+            if not run_already_ended:
+                self._queues[run_id].append(queue)
 
-        logger.debug(f"New SSE subscriber for run: {run_id}")
+        logger.debug(f"New SSE subscriber for run: {run_id} (buffered={len(buffered_events)}, ended={run_already_ended})")
 
         try:
+            # Replay buffered events
+            for event in buffered_events:
+                yield event
+
+            # If the run already ended before we subscribed, stop here
+            if run_already_ended:
+                return
+
+            # Stream live events
             while True:
                 try:
                     # Wait for event with timeout for heartbeat
@@ -125,10 +153,14 @@ class SSEManager:
         except Exception as e:
             logger.warning(f"Failed to persist event: {e}")
 
-        # Broadcast to subscribers
+        # Broadcast to subscribers and buffer for replay
         sse_data = event.to_sse()
 
         async with self._lock:
+            # Buffer event for late subscribers
+            self._event_buffers[run_id].append(sse_data)
+
+            # Broadcast to current subscribers
             queues = self._queues.get(run_id, [])
             for queue in queues:
                 try:
@@ -146,6 +178,9 @@ class SSEManager:
             run_id: Run identifier
         """
         async with self._lock:
+            # Mark run as ended so late subscribers get buffer + immediate close
+            self._ended_runs.add(run_id)
+
             queues = self._queues.get(run_id, [])
             for queue in queues:
                 try:
@@ -153,7 +188,7 @@ class SSEManager:
                 except Exception:
                     pass
 
-            # Cleanup
+            # Cleanup queues and counters (keep buffer for late subscribers)
             if run_id in self._queues:
                 del self._queues[run_id]
             if run_id in self._sequences:
@@ -162,6 +197,17 @@ class SSEManager:
                 del self._start_times[run_id]
 
         logger.debug(f"SSE manager ended run: {run_id}")
+
+        # Schedule buffer cleanup after 5 minutes to avoid memory growth
+        asyncio.get_event_loop().call_later(
+            300, lambda: self._cleanup_buffer(run_id)
+        )
+
+    def _cleanup_buffer(self, run_id: str) -> None:
+        """Clean up buffered events for a completed run."""
+        self._event_buffers.pop(run_id, None)
+        self._ended_runs.discard(run_id)
+        logger.debug(f"Cleaned up event buffer for run: {run_id}")
 
     # =========================================================================
     # Convenience Methods for Common Events
@@ -221,7 +267,8 @@ class SSEManager:
         if result_summary:
             payload["summary"] = result_summary
         if result_data:
-            payload["result"] = result_data
+            # Merge result_data into top-level payload for frontend compatibility
+            payload.update(result_data)
 
         return await self.emit(
             run_id=run_id,

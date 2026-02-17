@@ -117,7 +117,7 @@ class IntakeExecutor(Executor):
             state.run_id,
             WorkflowStep.INTAKE,
             result_summary=f"Payment ${state.payment.amount:,.2f} {state.payment.currency} to {state.payment.beneficiary_name}",
-            result_data=payment_context,
+            result_data={"payment": payment_context},
         )
         run_logger.step_completed("intake", f"Parsed payment: {state.payment.payment_id}")
 
@@ -189,6 +189,20 @@ class SanctionsExecutor(Executor):
             "timestamp_utc": state.payment.timestamp_utc,
         }
 
+        # Emit thinking trace BEFORE the agent call so the UI
+        # shows the "thinking" animation while the agent works
+        await self.sse_manager.agent_thinking(
+            state.run_id,
+            WorkflowStep.SANCTIONS,
+            self.agent_name,
+            f"Screening beneficiary '{state.payment.beneficiary_name}' against sanctions lists",
+            context={"lists_checked": ["OFAC SDN", "EU Sanctions", "UN Sanctions"]},
+        )
+        await self.sse_manager.agent_detail(
+            state.run_id, WorkflowStep.SANCTIONS, self.agent_name,
+            "Beneficiary Name", state.payment.beneficiary_name, category="info",
+        )
+
         # Call Foundry agent
         sanctions_result = await self.foundry_client.run_sanctions_screening(
             beneficiary_name=state.payment.beneficiary_name,
@@ -197,6 +211,47 @@ class SanctionsExecutor(Executor):
         )
 
         state.sanctions_result = sanctions_result
+
+        # Emit detail traces (these depend on the result)
+        await self.sse_manager.agent_detail(
+            state.run_id, WorkflowStep.SANCTIONS, self.agent_name,
+            "Match Type", sanctions_result.match_type, category="info",
+        )
+        await self.sse_manager.agent_detail(
+            state.run_id, WorkflowStep.SANCTIONS, self.agent_name,
+            "Confidence Score", f"{sanctions_result.confidence}%", category="metric",
+        )
+
+        # Emit finding based on decision
+        match_details = sanctions_result.match_details or {}
+        if sanctions_result.decision == SanctionsDecision.BLOCK:
+            await self.sse_manager.agent_finding(
+                state.run_id, WorkflowStep.SANCTIONS, self.agent_name,
+                finding_type="sanctions_match",
+                finding=f"BLOCKED: {sanctions_result.match_type} match found against SDN list",
+                severity="critical",
+                details={
+                    "matched_entity": match_details.get("matched_entity", state.payment.beneficiary_name),
+                    "programs": match_details.get("programs", []),
+                    "confidence": sanctions_result.confidence,
+                },
+            )
+        elif sanctions_result.decision == SanctionsDecision.ESCALATE:
+            await self.sse_manager.agent_finding(
+                state.run_id, WorkflowStep.SANCTIONS, self.agent_name,
+                finding_type="potential_match",
+                finding=f"Potential match requires manual review (confidence: {sanctions_result.confidence}%)",
+                severity="warning",
+                details={"recommendation": sanctions_result.recommendation},
+            )
+        else:
+            await self.sse_manager.agent_finding(
+                state.run_id, WorkflowStep.SANCTIONS, self.agent_name,
+                finding_type="sanctions_clear",
+                finding="No sanctions matches found - beneficiary cleared",
+                severity="info",
+                details={"confidence": sanctions_result.confidence},
+            )
 
         # Emit tool call event
         await self.sse_manager.tool_call(
@@ -208,12 +263,24 @@ class SanctionsExecutor(Executor):
             output_summary=f"{sanctions_result.decision.value} ({sanctions_result.confidence}%)",
         )
 
+        # Build result summary
+        result_summary = (
+            f"{sanctions_result.decision.value} ({sanctions_result.confidence}%) | "
+            f"{sanctions_result.recommendation[:60]}"
+        )
+
         # Complete step
         await self.sse_manager.step_completed(
             state.run_id,
             WorkflowStep.SANCTIONS,
             agent=self.agent_name,
-            result_summary=f"{sanctions_result.decision.value}: {sanctions_result.recommendation[:50]}...",
+            result_summary=result_summary,
+            result_data={
+                "decision": sanctions_result.decision.value,
+                "confidence": sanctions_result.confidence,
+                "match_type": sanctions_result.match_type,
+                "recommendation": sanctions_result.recommendation,
+            },
         )
         run_logger.step_completed("sanctions", f"Decision: {sanctions_result.decision.value}")
 
@@ -309,6 +376,16 @@ class LiquidityExecutor(Executor):
             "timestamp_utc": state.payment.timestamp_utc,
         }
 
+        # Emit thinking trace BEFORE the agent call so the UI
+        # shows the "thinking" animation while the agent works
+        await self.sse_manager.agent_thinking(
+            state.run_id,
+            WorkflowStep.LIQUIDITY,
+            self.agent_name,
+            f"Analyzing liquidity impact for {state.payment.currency} {state.payment.amount:,.2f} payment",
+            context={"entity": state.payment.entity, "account": state.payment.account_id},
+        )
+
         # Call Foundry agent
         liquidity_result = await self.foundry_client.run_liquidity_screening(
             payment_context=payment_context,
@@ -317,7 +394,71 @@ class LiquidityExecutor(Executor):
 
         state.liquidity_result = liquidity_result
 
-        breach = liquidity_result.breach_assessment.get("breach", False)
+        breach_assessment = liquidity_result.breach_assessment or {}
+        account_summary = liquidity_result.account_summary or {}
+        breach = breach_assessment.get("breach", False)
+
+        # Emit detail traces (these depend on the result)
+        await self.sse_manager.agent_detail(
+            state.run_id, WorkflowStep.LIQUIDITY, self.agent_name,
+            "Start of Day Balance",
+            f"${account_summary.get('start_of_day_balance', 0):,.2f}",
+            category="metric",
+        )
+        await self.sse_manager.agent_detail(
+            state.run_id, WorkflowStep.LIQUIDITY, self.agent_name,
+            "Total Outflows Today",
+            f"${account_summary.get('total_outflow', 0):,.2f}",
+            category="metric",
+        )
+        await self.sse_manager.agent_detail(
+            state.run_id, WorkflowStep.LIQUIDITY, self.agent_name,
+            "Projected End of Day",
+            f"${account_summary.get('end_of_day_balance', 0):,.2f}",
+            category="metric",
+        )
+
+        buffer_threshold = breach_assessment.get("buffer_threshold", 0)
+        projected_min = breach_assessment.get("projected_min_balance", 0)
+
+        await self.sse_manager.agent_detail(
+            state.run_id, WorkflowStep.LIQUIDITY, self.agent_name,
+            "Buffer Threshold",
+            f"${buffer_threshold:,.2f}",
+            category="threshold",
+        )
+        await self.sse_manager.agent_detail(
+            state.run_id, WorkflowStep.LIQUIDITY, self.agent_name,
+            "Projected Minimum Balance",
+            f"${projected_min:,.2f}",
+            category="comparison",
+        )
+
+        # Emit finding based on breach status
+        if breach:
+            gap = breach_assessment.get("gap", 0)
+            first_breach_time = breach_assessment.get("first_breach_time", "")
+            await self.sse_manager.agent_finding(
+                state.run_id, WorkflowStep.LIQUIDITY, self.agent_name,
+                finding_type="liquidity_breach",
+                finding=f"Payment would breach buffer threshold by ${gap:,.2f}",
+                severity="critical",
+                details={
+                    "gap_amount": gap,
+                    "breach_time": first_breach_time,
+                    "buffer_threshold": buffer_threshold,
+                    "projected_balance": projected_min,
+                },
+            )
+        else:
+            headroom = breach_assessment.get("headroom", 0)
+            await self.sse_manager.agent_finding(
+                state.run_id, WorkflowStep.LIQUIDITY, self.agent_name,
+                finding_type="liquidity_ok",
+                finding=f"Sufficient headroom: ${headroom:,.2f} above buffer",
+                severity="info",
+                details={"headroom": headroom},
+            )
 
         # Emit tool call event
         await self.sse_manager.tool_call(
@@ -329,12 +470,27 @@ class LiquidityExecutor(Executor):
             output_summary=f"{'BREACH' if breach else 'NO_BREACH'}",
         )
 
+        # Build result summary
+        reason = liquidity_result.recommendation.get("reason", "")
+        if breach:
+            gap = breach_assessment.get("gap", 0)
+            result_summary = f"BREACH - Gap: ${gap:,.2f} | {reason[:80]}"
+        else:
+            result_summary = f"OK | {reason[:80]}"
+
         # Complete step
         await self.sse_manager.step_completed(
             state.run_id,
             WorkflowStep.LIQUIDITY,
             agent=self.agent_name,
-            result_summary=f"{'BREACH detected' if breach else 'No breach'}: {liquidity_result.recommendation.get('reason', '')[:50]}...",
+            result_summary=result_summary,
+            result_data={
+                "breach": breach,
+                "gap": breach_assessment.get("gap", 0) if breach else 0,
+                "buffer_threshold": buffer_threshold,
+                "projected_balance": projected_min,
+                "recommendation": liquidity_result.recommendation.get("action", "UNKNOWN"),
+            },
         )
         run_logger.step_completed("liquidity", f"Breach: {breach}")
 
@@ -418,6 +574,22 @@ class ProceduresExecutor(Executor):
         assert state.sanctions_result is not None, "Sanctions result required"
         assert state.liquidity_result is not None, "Liquidity result required"
 
+        breach = state.liquidity_result.breach_assessment.get("breach", False) if state.liquidity_result else False
+
+        # Emit thinking trace BEFORE the agent call so the UI
+        # shows the "thinking" animation while the agent works
+        await self.sse_manager.agent_thinking(
+            state.run_id,
+            WorkflowStep.PROCEDURES,
+            self.agent_name,
+            "Consulting treasury knowledge base for applicable policies and procedures",
+            context={
+                "sanctions_decision": state.sanctions_result.decision.value,
+                "liquidity_breach": breach,
+                "amount": state.payment.amount,
+            },
+        )
+
         procedures_result = await self.foundry_client.run_operational_procedures(
             payment_context=payment_context,
             sanctions_result=state.sanctions_result,
@@ -426,6 +598,10 @@ class ProceduresExecutor(Executor):
         )
 
         state.procedures_result = procedures_result
+
+        final_action = procedures_result.workflow_determination.get("final_action", "HOLD")
+        reason = procedures_result.workflow_determination.get("reason", "")
+        policy_ref = procedures_result.workflow_determination.get("policy_reference", "")
 
         # Log KB query if citations present
         if procedures_result.citations:
@@ -438,14 +614,66 @@ class ProceduresExecutor(Executor):
                 [c.source for c in procedures_result.citations],
             )
 
-        final_action = procedures_result.workflow_determination.get("final_action", "HOLD")
+        # Emit detail traces for determination
+        await self.sse_manager.agent_detail(
+            state.run_id, WorkflowStep.PROCEDURES, self.agent_name,
+            "Determined Action", final_action, category="info",
+        )
+        if policy_ref:
+            await self.sse_manager.agent_detail(
+                state.run_id, WorkflowStep.PROCEDURES, self.agent_name,
+                "Policy Reference", policy_ref, category="info",
+            )
+
+        # Emit finding for required approvals
+        if procedures_result.required_approvals:
+            approvers = [a.role for a in procedures_result.required_approvals]
+            await self.sse_manager.agent_finding(
+                state.run_id, WorkflowStep.PROCEDURES, self.agent_name,
+                finding_type="approvals_required",
+                finding=f"Required approvals: {', '.join(approvers)}",
+                severity="warning" if len(approvers) > 1 else "info",
+                details={
+                    "approvers": [
+                        {"role": a.role, "authority": a.authority, "sla_hours": a.sla_hours}
+                        for a in procedures_result.required_approvals
+                    ]
+                },
+            )
+
+        # Emit finding for procedure steps
+        if procedures_result.workflow_steps:
+            await self.sse_manager.agent_finding(
+                state.run_id, WorkflowStep.PROCEDURES, self.agent_name,
+                finding_type="procedure_steps",
+                finding=f"{len(procedures_result.workflow_steps)} operational steps identified",
+                severity="info",
+                details={
+                    "steps": [
+                        {"step": s.step_number, "action": s.action, "responsible": s.responsible}
+                        for s in procedures_result.workflow_steps
+                    ]
+                },
+            )
+
+        # Build result summary
+        approvals_count = len(procedures_result.required_approvals)
+        result_summary = f"{final_action} | {reason[:80]} | {approvals_count} approvals needed"
 
         # Complete step
         await self.sse_manager.step_completed(
             state.run_id,
             WorkflowStep.PROCEDURES,
             agent=self.agent_name,
-            result_summary=f"{final_action}: {procedures_result.workflow_determination.get('reason', '')[:50]}...",
+            result_summary=result_summary,
+            result_data={
+                "final_action": final_action,
+                "reason": reason,
+                "policy_reference": policy_ref,
+                "approvals_count": approvals_count,
+                "steps_count": len(procedures_result.workflow_steps),
+                "citations_count": len(procedures_result.citations),
+            },
         )
         run_logger.step_completed("procedures", f"Action: {final_action}")
 
