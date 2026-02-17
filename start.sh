@@ -33,7 +33,7 @@ else
     source venv/bin/activate
 fi
 
-uvicorn main:app --reload --port 8000 &
+uvicorn app.main:app --reload --port 8000 &
 BACKEND_PID=$!
 cd ..
 
@@ -58,7 +58,7 @@ echo "============================================"
 echo "Emergency Payment Runbook is running!"
 echo "============================================"
 echo ""
-echo "Frontend: http://localhost:3000"
+echo "Frontend: http://localhost:3001"
 echo "Backend:  http://localhost:8000"
 echo "API Docs: http://localhost:8000/docs"
 echo ""

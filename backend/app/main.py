@@ -112,7 +112,7 @@ async def start_runbook(
         run_id = await orchestrator.start_workflow(request)
 
         # Execute workflow in background
-        background_tasks.add_task(orchestrator.execute_workflow, run_id)
+        background_tasks.add_task(orchestrator.execute_workflow_v2, run_id)
 
         logger.info(f"Workflow started: {run_id}")
         return RunbookStartResponse(run_id=run_id, status="started")

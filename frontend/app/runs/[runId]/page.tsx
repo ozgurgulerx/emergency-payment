@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -90,6 +90,167 @@ export default function RunPage() {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(["conditions", "approvals", "checklist", "citations"]));
 
   const eventSourceRef = useRef<EventSource | null>(null);
+  const eventQueueRef = useRef<WorkflowEvent[]>([]);
+  const processingRef = useRef(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Process a single event and apply state updates
+  const processEvent = useCallback((data: WorkflowEvent) => {
+    setEvents((prev) => [...prev, data]);
+
+    if (data.type === "step_started") {
+      setSteps((prev) => ({
+        ...prev,
+        [data.step]: { ...prev[data.step], status: "running", startTime: data.ts, traces: [] },
+      }));
+    } else if (data.type === "step_completed") {
+      setSteps((prev) => ({
+        ...prev,
+        [data.step]: {
+          ...prev[data.step],
+          status: "completed",
+          endTime: data.ts,
+          elapsed_ms: data.elapsed_ms,
+          summary: data.payload?.summary as string,
+          details: data.payload,
+        },
+      }));
+      if (data.step === "intake" && data.payload?.payment) {
+        setPayment(data.payload.payment as PaymentDetails);
+      }
+    } else if (data.type === "step_failed" || data.type === "error") {
+      setSteps((prev) => ({
+        ...prev,
+        [data.step]: { ...prev[data.step], status: "failed", summary: data.payload?.error as string },
+      }));
+      setError(data.payload?.error as string);
+    } else if (data.type === "final") {
+      setDecision(data.payload?.decision_packet as DecisionPacket);
+      setSteps((prev) => ({
+        ...prev,
+        summarize: { ...prev.summarize, status: "completed", elapsed_ms: data.elapsed_ms },
+      }));
+      setIsComplete(true);
+    } else if (data.type === "agent_thinking") {
+      setSteps((prev) => ({
+        ...prev,
+        [data.step]: {
+          ...prev[data.step],
+          traces: [
+            ...(prev[data.step].traces || []),
+            {
+              type: "thinking" as const,
+              timestamp: data.ts,
+              content: data.payload?.thought as string,
+              details: data.payload?.context as Record<string, unknown>,
+            },
+          ],
+        },
+      }));
+    } else if (data.type === "agent_finding") {
+      setSteps((prev) => ({
+        ...prev,
+        [data.step]: {
+          ...prev[data.step],
+          traces: [
+            ...(prev[data.step].traces || []),
+            {
+              type: "finding" as const,
+              timestamp: data.ts,
+              content: data.payload?.finding as string,
+              severity: data.payload?.severity as "info" | "warning" | "critical",
+              details: data.payload?.details as Record<string, unknown>,
+            },
+          ],
+        },
+      }));
+    } else if (data.type === "agent_detail") {
+      setSteps((prev) => ({
+        ...prev,
+        [data.step]: {
+          ...prev[data.step],
+          traces: [
+            ...(prev[data.step].traces || []),
+            {
+              type: "detail" as const,
+              timestamp: data.ts,
+              content: `${data.payload?.label}: ${data.payload?.value}`,
+              details: { category: data.payload?.category },
+            },
+          ],
+        },
+      }));
+    } else if (data.type === "tool_call") {
+      setSteps((prev) => ({
+        ...prev,
+        [data.step]: {
+          ...prev[data.step],
+          traces: [
+            ...(prev[data.step].traces || []),
+            {
+              type: "tool_call" as const,
+              timestamp: data.ts,
+              content: `Tool: ${data.payload?.tool} → ${data.payload?.output}`,
+              details: data.payload as Record<string, unknown>,
+            },
+          ],
+        },
+      }));
+    } else if (data.type === "kb_query") {
+      setSteps((prev) => ({
+        ...prev,
+        [data.step]: {
+          ...prev[data.step],
+          traces: [
+            ...(prev[data.step].traces || []),
+            {
+              type: "kb_query" as const,
+              timestamp: data.ts,
+              content: `KB Query: "${data.payload?.query}" → ${data.payload?.results_count} results`,
+              details: { sources: data.payload?.sources },
+            },
+          ],
+        },
+      }));
+    }
+  }, []);
+
+  // Drain the event queue with staggered delays for smooth animation
+  const drainQueue = useCallback(() => {
+    if (processingRef.current) return;
+    processingRef.current = true;
+
+    const processNext = () => {
+      const queue = eventQueueRef.current;
+      if (queue.length === 0) {
+        processingRef.current = false;
+        return;
+      }
+
+      const event = queue.shift()!;
+      processEvent(event);
+
+      // Determine delay before processing next event
+      // If queue is empty, stop (next event will trigger drainQueue when it arrives)
+      if (queue.length === 0) {
+        processingRef.current = false;
+        return;
+      }
+
+      // Stagger delays for smooth animation when processing buffered events
+      const nextEvent = queue[0];
+      let delay = 120; // default delay for trace events
+      if (nextEvent.type === "step_started") {
+        delay = 250; // longer pause before new step starts
+      } else if (nextEvent.type === "step_completed" || nextEvent.type === "final") {
+        delay = 80; // quick for completions
+      }
+
+      timerRef.current = setTimeout(processNext, delay);
+    };
+
+    processNext();
+  }, [processEvent]);
 
   useEffect(() => {
     if (!runId) return;
@@ -101,131 +262,8 @@ export default function RunPage() {
     eventSource.onmessage = (event) => {
       try {
         const data: WorkflowEvent = JSON.parse(event.data);
-        setEvents((prev) => [...prev, data]);
-
-        // Update step status based on event type
-        if (data.type === "step_started") {
-          setSteps((prev) => ({
-            ...prev,
-            [data.step]: { ...prev[data.step], status: "running", startTime: data.ts, traces: [] },
-          }));
-        } else if (data.type === "step_completed") {
-          setSteps((prev) => ({
-            ...prev,
-            [data.step]: {
-              ...prev[data.step],
-              status: "completed",
-              endTime: data.ts,
-              elapsed_ms: data.elapsed_ms,
-              summary: data.payload?.summary as string,
-              details: data.payload,
-            },
-          }));
-
-          // Extract payment details from intake step
-          if (data.step === "intake" && data.payload?.payment) {
-            setPayment(data.payload.payment as PaymentDetails);
-          }
-        } else if (data.type === "step_failed" || data.type === "error") {
-          setSteps((prev) => ({
-            ...prev,
-            [data.step]: { ...prev[data.step], status: "failed", summary: data.payload?.error as string },
-          }));
-          setError(data.payload?.error as string);
-        } else if (data.type === "final") {
-          setDecision(data.payload?.decision_packet as DecisionPacket);
-          setSteps((prev) => ({
-            ...prev,
-            summarize: { ...prev.summarize, status: "completed", elapsed_ms: data.elapsed_ms },
-          }));
-          setIsComplete(true);
-        } else if (data.type === "agent_thinking") {
-          // Add thinking trace to current step
-          setSteps((prev) => ({
-            ...prev,
-            [data.step]: {
-              ...prev[data.step],
-              traces: [
-                ...(prev[data.step].traces || []),
-                {
-                  type: "thinking" as const,
-                  timestamp: data.ts,
-                  content: data.payload?.thought as string,
-                  details: data.payload?.context as Record<string, unknown>,
-                },
-              ],
-            },
-          }));
-        } else if (data.type === "agent_finding") {
-          // Add finding trace to current step
-          setSteps((prev) => ({
-            ...prev,
-            [data.step]: {
-              ...prev[data.step],
-              traces: [
-                ...(prev[data.step].traces || []),
-                {
-                  type: "finding" as const,
-                  timestamp: data.ts,
-                  content: data.payload?.finding as string,
-                  severity: data.payload?.severity as "info" | "warning" | "critical",
-                  details: data.payload?.details as Record<string, unknown>,
-                },
-              ],
-            },
-          }));
-        } else if (data.type === "agent_detail") {
-          // Add detail trace to current step
-          setSteps((prev) => ({
-            ...prev,
-            [data.step]: {
-              ...prev[data.step],
-              traces: [
-                ...(prev[data.step].traces || []),
-                {
-                  type: "detail" as const,
-                  timestamp: data.ts,
-                  content: `${data.payload?.label}: ${data.payload?.value}`,
-                  details: { category: data.payload?.category },
-                },
-              ],
-            },
-          }));
-        } else if (data.type === "tool_call") {
-          // Add tool call trace
-          setSteps((prev) => ({
-            ...prev,
-            [data.step]: {
-              ...prev[data.step],
-              traces: [
-                ...(prev[data.step].traces || []),
-                {
-                  type: "tool_call" as const,
-                  timestamp: data.ts,
-                  content: `Tool: ${data.payload?.tool} → ${data.payload?.output}`,
-                  details: data.payload as Record<string, unknown>,
-                },
-              ],
-            },
-          }));
-        } else if (data.type === "kb_query") {
-          // Add KB query trace
-          setSteps((prev) => ({
-            ...prev,
-            [data.step]: {
-              ...prev[data.step],
-              traces: [
-                ...(prev[data.step].traces || []),
-                {
-                  type: "kb_query" as const,
-                  timestamp: data.ts,
-                  content: `KB Query: "${data.payload?.query}" → ${data.payload?.results_count} results`,
-                  details: { sources: data.payload?.sources },
-                },
-              ],
-            },
-          }));
-        }
+        eventQueueRef.current.push(data);
+        drainQueue();
       } catch (err) {
         console.error("Failed to parse SSE event:", err);
       }
@@ -238,8 +276,9 @@ export default function RunPage() {
 
     return () => {
       eventSource.close();
+      if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [runId]);
+  }, [runId, drainQueue]);
 
   const toggleSection = (section: string) => {
     setExpandedSections((prev) => {

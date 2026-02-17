@@ -14,8 +14,8 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "IC Autopilot - Investment Committee Automation",
-  description: "Enterprise-grade Investment Committee workflow automation with real-time progress tracking",
+  title: "Emergency Payment Runbook",
+  description: "Process urgent payments with automated sanctions screening, liquidity checks, and operational procedure compliance",
 };
 
 export default function RootLayout({

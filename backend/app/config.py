@@ -3,7 +3,6 @@ Configuration management for the Emergency Payment Runbook.
 Loads settings from environment variables with validation.
 """
 
-import os
 from functools import lru_cache
 from typing import Optional
 from pydantic_settings import BaseSettings
@@ -155,4 +154,4 @@ def get_settings() -> Settings:
 def is_dry_run() -> bool:
     """Check if running in dry-run mode."""
     settings = get_settings()
-    return settings.dry_run_mode or not os.getenv("AZURE_AI_PROJECT_ENDPOINT")
+    return settings.dry_run_mode or not settings.azure_foundry_project_endpoint

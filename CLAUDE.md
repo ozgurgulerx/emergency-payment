@@ -1,5 +1,20 @@
 # Claude Code Project Instructions
 
+## Project Overview - Emergency Payment Runbook
+
+This is an **Emergency Payment Runbook** system. It is NOT a funds/portfolio management system.
+
+### Data Sources Used
+- **OFAC SDN List** (Open Source) - U.S. Treasury sanctions data (~18,557 entities) for beneficiary screening
+- **Synthetic Liquidity Positions** - Operational data for intraday liquidity impact screening
+
+### NOT Used by This Project
+- ❌ SEC N-PORT filings / `nport_funds` schema - Not used
+- ❌ Funds-related multi-agent framework (Market, Risk, Return, Optimizer, Compliance agents) - Not used
+- ❌ Portfolio optimization or investment policy workflows - Not used
+
+The Agent Framework architecture section below is legacy documentation from the original codebase template and does not apply to the emergency payment workflow.
+
 ## Critical Rules
 
 ### DO NOT MODIFY

@@ -18,6 +18,7 @@ azure-identity==1.19.0
 azure-storage-blob==12.23.1
 azure-cosmos==4.7.0
 azure-search-documents==11.6.0b7
+azure-ai-projects>=1.0.0b7
 openai>=1.99.0
 
 # Microsoft Agent Framework (core only, without [all] extras)
